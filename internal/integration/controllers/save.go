@@ -1,0 +1,108 @@
+package controllers
+
+import (
+	"strings"
+	"time"
+
+	"lead-crm/backend/database"
+	"lead-crm/backend/internal/integration/models"
+
+	"github.com/gin-gonic/gin"
+	"github.com/kamlesh-Sahani/go-commons/response"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo/options"
+)
+
+type SaveRequest struct {
+	IsActive          bool              `json:"isActive"`
+	VerifyToken       string            `json:"verifyToken"`
+	PageAccessToken   string            `json:"pageAccessToken"`
+	PageID            string            `json:"pageId"`
+	PageName          string            `json:"pageName"`
+	AppSecret         string            `json:"appSecret"`
+	FieldMapping      map[string]string `json:"fieldMapping"`
+}
+
+// Save updates or creates Meta Ads configuration
+func Save(c *gin.Context) {
+	var req SaveRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request body")
+		return
+	}
+
+	coll := database.GetCollection("integrations")
+
+	var existing models.MetaIntegrationConfig
+	_ = coll.FindOne(c.Request.Context(), bson.M{"provider": "META_ADS"}).Decode(&existing)
+
+	pageAccessToken := strings.TrimSpace(req.PageAccessToken)
+	if pageAccessToken == "" || strings.Contains(pageAccessToken, "...") {
+		pageAccessToken = existing.PageAccessToken
+	}
+
+	if pageAccessToken == "" {
+		response.BadRequest(c, "Page Access Token is required")
+		return
+	}
+
+	// Live Meta Verification: verify credentials against Meta Graph API
+	verified, err := VerifyMetaCredentials(pageAccessToken, req.PageID)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	pageName := strings.TrimSpace(req.PageName)
+	if verified.PageName != "" {
+		pageName = verified.PageName
+	}
+
+	pageID := strings.TrimSpace(req.PageID)
+	if verified.PageID != "" && pageID == "" {
+		pageID = verified.PageID
+	}
+
+	appSecret := strings.TrimSpace(req.AppSecret)
+	if appSecret == "" || strings.Contains(appSecret, "...") {
+		appSecret = existing.AppSecret
+	}
+
+	verifyToken := strings.TrimSpace(req.VerifyToken)
+	if verifyToken == "" {
+		verifyToken = existing.VerifyToken
+	}
+	if verifyToken == "" {
+		response.BadRequest(c, "Verify Token is required")
+		return
+	}
+
+	fieldMapping := req.FieldMapping
+
+	updateDoc := bson.M{
+		"provider":          "META_ADS",
+		"is_active":         req.IsActive,
+		"verify_token":      verifyToken,
+		"page_access_token": pageAccessToken,
+		"page_id":           pageID,
+		"page_name":         pageName,
+		"app_secret":        appSecret,
+		"field_mapping":     fieldMapping,
+		"updated_at":        time.Now(),
+	}
+
+	opts := options.Update().SetUpsert(true)
+	_, err = coll.UpdateOne(c.Request.Context(), bson.M{"provider": "META_ADS"}, bson.M{
+		"$set": updateDoc,
+		"$setOnInsert": bson.M{
+			"created_at": time.Now(),
+		},
+	}, opts)
+
+	if err != nil {
+		response.InternalServerError(c, "Failed to save configuration")
+		return
+	}
+
+	response.Success(c, "Meta Ads integration configuration saved successfully", nil)
+}
