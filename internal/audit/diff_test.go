@@ -7,9 +7,9 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-type sampleTeamMember struct {
+type sampleEmployee struct {
 	ID            string `json:"id"`
-	TeamID        string `json:"teamId"`
+	EmpID         string `json:"empId"`
 	Name          string `json:"name"`
 	Email         string `json:"email"`
 	Password      string `json:"password"`
@@ -20,9 +20,9 @@ type sampleTeamMember struct {
 }
 
 func TestComputeDiff_Create(t *testing.T) {
-	member := sampleTeamMember{
+	employee := sampleEmployee{
 		ID:            "670000000000000000000001",
-		TeamID:        "TEAM-00001",
+		EmpID:         "EMP-00001",
 		Name:          "John Doe",
 		Email:         "john@example.com",
 		Password:      "secret123",
@@ -32,7 +32,7 @@ func TestComputeDiff_Create(t *testing.T) {
 		DateOfJoining: "2026-10-01",
 	}
 
-	diffs, count := ComputeDiff(nil, member, auditmodels.ActionCreate)
+	diffs, count := ComputeDiff(nil, employee, auditmodels.ActionCreate)
 	// ID and Password should be ignored, leaving 7 fields
 	if count != 7 {
 		t.Fatalf("expected 7 diffs (excluding id and password), got %d: %+v", count, diffs)
@@ -49,9 +49,9 @@ func TestComputeDiff_Create(t *testing.T) {
 }
 
 func TestComputeDiff_PartialUpdate(t *testing.T) {
-	oldMember := sampleTeamMember{
+	oldMember := sampleEmployee{
 		ID:            "670000000000000000000001",
-		TeamID:        "TEAM-00001",
+		EmpID:         "EMP-00001",
 		Name:          "John Doe",
 		Email:         "john@example.com",
 		Status:        "ACTIVE",
@@ -95,13 +95,13 @@ func TestComputeDiff_PartialUpdate(t *testing.T) {
 }
 
 func TestComputeDiff_Delete(t *testing.T) {
-	oldMember := map[string]any{
-		"id":      "123",
-		"name":    "John Doe",
-		"team_id": "TEAM-00001",
+	oldEmployee := map[string]any{
+		"id":     "123",
+		"name":   "John Doe",
+		"emp_id": "EMP-00001",
 	}
 
-	diffs, count := ComputeDiff(oldMember, nil, auditmodels.ActionDelete)
+	diffs, count := ComputeDiff(oldEmployee, nil, auditmodels.ActionDelete)
 	if count != 2 {
 		t.Fatalf("expected 2 diffs on delete, got %d", count)
 	}
@@ -115,7 +115,7 @@ func TestComputeDiff_Delete(t *testing.T) {
 
 func TestComputeDiff_HumanizeField(t *testing.T) {
 	cases := map[string]string{
-		"team_id":         "Team ID",
+		"emp_id":          "Emp ID",
 		"date_of_joining": "Date Of Joining",
 		"pan_card":        "PAN Card",
 		"aadhar_number":   "Aadhar Number",

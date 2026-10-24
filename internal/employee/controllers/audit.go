@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"lead-crm/backend/internal/audit"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -9,7 +10,7 @@ import (
 func RecordAuditLog(c *gin.Context, entityID, action string, oldData, newData any) {
 	audit.Record(c, audit.RecordParams{
 		EntityID:   entityID,
-		EntityType: "team",
+		EntityType: "employee",
 		Action:     action,
 		OldData:    oldData,
 		NewData:    newData,

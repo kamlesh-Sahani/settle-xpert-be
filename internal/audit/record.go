@@ -22,7 +22,7 @@ type RecordParams struct {
 	NewData    any
 }
 
-// Record extracts user and tenant context and asynchronously stores an audit record.
+// Record extracts employee and tenant context and asynchronously stores an audit record.
 func Record(c *gin.Context, params RecordParams) {
 	if c == nil {
 		return
@@ -43,22 +43,22 @@ func Record(c *gin.Context, params RecordParams) {
 		}
 	}
 
-	// 2. Extract User ID
-	var userObjIDPtr *primitive.ObjectID
-	if uVal, exists := c.Get("user_obj_id"); exists {
-		if uid, ok := uVal.(primitive.ObjectID); ok && !uid.IsZero() {
-			userObjIDPtr = &uid
+	// 2. Extract Employee ID
+	var empObjIDPtr *primitive.ObjectID
+	if eVal, exists := c.Get("emp_obj_id"); exists {
+		if eid, ok := eVal.(primitive.ObjectID); ok && !eid.IsZero() {
+			empObjIDPtr = &eid
 		}
 	}
-	if userObjIDPtr == nil {
-		if uStr := c.GetString("user_id"); uStr != "" {
-			if uid, err := primitive.ObjectIDFromHex(uStr); err == nil && !uid.IsZero() {
-				userObjIDPtr = &uid
+	if empObjIDPtr == nil {
+		if eStr := c.GetString("employee_id"); eStr != "" {
+			if eid, err := primitive.ObjectIDFromHex(eStr); err == nil && !eid.IsZero() {
+				empObjIDPtr = &eid
 			}
 		}
 	}
 
-	// 3. Extract Action By (User Name)
+	// 3. Extract Action By (Employee Name)
 	actionBy := c.GetString("name")
 	if actionBy == "" {
 		if email := c.GetString("email"); email != "" {
@@ -80,7 +80,7 @@ func Record(c *gin.Context, params RecordParams) {
 	// 6. Construct strongly-typed audit log
 	entry := auditmodels.AuditLog{
 		TenantID:    tenantObjIDPtr,
-		UserID:      userObjIDPtr,
+		EmployeeID:  empObjIDPtr,
 		EntityID:    params.EntityID,
 		EntityType:  params.EntityType,
 		ActionBy:    actionBy,

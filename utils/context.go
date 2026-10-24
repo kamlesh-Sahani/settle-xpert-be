@@ -4,19 +4,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type UserContext struct {
-	UserID    string `json:"user_id"`
-	Email     string `json:"email"`
-	Name      string `json:"name"`
-	SessionID string `json:"session_id"`
+type EmployeeContext struct {
+	EmployeeID string `json:"employee_id"`
+	Email      string `json:"email"`
+	Name       string `json:"name"`
+	SessionID  string `json:"session_id"`
 }
 
-func GetAuthUser(c *gin.Context) (*UserContext, bool) {
-	val, exists := c.Get("user_context")
+func GetAuthEmployee(c *gin.Context) (*EmployeeContext, bool) {
+	val, exists := c.Get("employee_context")
 	if !exists {
 		return nil, false
 	}
 
-	user, ok := val.(*UserContext)
-	return user, ok
+	emp, ok := val.(*EmployeeContext)
+	return emp, ok
 }

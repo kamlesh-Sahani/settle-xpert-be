@@ -36,7 +36,7 @@ var ignoredFields = map[string]bool{
 	"createdat":                      true,
 	"updatedat":                      true,
 	"deletedat":                      true,
-	"fake_username_prevent_autofill": true,
+	"fake_email_prevent_autofill":    true,
 	"fake_password_prevent_autofill": true,
 }
 
@@ -491,7 +491,7 @@ func getSortedKeys(m map[string]any) []string {
 	return keys
 }
 
-// HumanizeField converts camelCase or snake_case to Title Case (e.g. "team_id" -> "Team ID")
+// HumanizeField converts camelCase or snake_case to Title Case (e.g. "emp_id" -> "Emp ID")
 func HumanizeField(s string) string {
 	s = strings.ReplaceAll(s, "_", " ")
 	s = strings.ReplaceAll(s, "-", " ")

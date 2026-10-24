@@ -2,7 +2,7 @@ package controllers
 
 import (
 	"lead-crm/backend/database"
-	"lead-crm/backend/internal/user/models"
+	"lead-crm/backend/internal/employee/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kamlesh-Sahani/go-commons/table"
@@ -30,16 +30,16 @@ func GetAll(c *gin.Context) {
 		}
 	}
 
-	table.ExecuteTableList[models.User](c, table.TableListConfig[models.User]{
-		CollectionName: "users",
-		EntityName:     "users",
-		ExportFileName: "team_export",
+	table.ExecuteTableList[models.Employee](c, table.TableListConfig[models.Employee]{
+		CollectionName: "employees",
+		EntityName:     "employees",
+		ExportFileName: "employees_export",
 		BaseFilter: bson.M{
 			"deleted_at": bson.M{"$exists": false},
 		},
-		SearchFields: []string{"name", "email", "phone", "team_id"},
+		SearchFields: []string{"name", "email", "phone", "emp_id"},
 		AllowedSorts: map[string]string{
-			"team_id":    "team_id",
+			"emp_id":     "emp_id",
 			"name":       "name",
 			"email":      "email",
 			"status":     "status",
@@ -48,7 +48,7 @@ func GetAll(c *gin.Context) {
 		DefaultSort: "created_at",
 		Projection: bson.M{
 			"_id":        1,
-			"team_id":    1,
+			"emp_id":     1,
 			"name":       1,
 			"email":      1,
 			"phone":      1,
@@ -57,7 +57,7 @@ func GetAll(c *gin.Context) {
 			"created_at": 1,
 		},
 		Columns: []table.TableColumn{
-			{ID: "team_id", Title: "Team ID", Sortable: true, Width: 140, Type: table.ColumnTypeText},
+			{ID: "emp_id", Title: "Employee ID", Sortable: true, Width: 150, Type: table.ColumnTypeText},
 			{ID: "name", Title: "Name", Sortable: true, Width: 220, Type: table.ColumnTypeText},
 			{ID: "email", Title: "Email Address", Sortable: true, Width: 220, Type: table.ColumnTypeText},
 			{ID: "role", Title: "Role", Sortable: false, Width: 160, Type: table.ColumnTypeText},
@@ -68,21 +68,21 @@ func GetAll(c *gin.Context) {
 				Width:    130,
 				Type:     table.ColumnTypeSelect,
 				Options: []table.SelectOption{
-					{Key: models.UserStatusActive, Value: "Active"},
-					{Key: models.UserStatusSuspended, Value: "Suspended"},
+					{Key: models.EmployeeStatusActive, Value: "Active"},
+					{Key: models.EmployeeStatusSuspended, Value: "Suspended"},
 				},
 			},
 			{ID: "created_at", Title: "Joined At", Sortable: true, Width: 140, Type: table.ColumnTypeDate},
 		},
-		RowMapper: func(u models.User) map[string][]table.TableCell {
+		RowMapper: func(u models.Employee) map[string][]table.TableCell {
 			row := make(map[string][]table.TableCell)
 
-			teamIDDisplay := u.TeamID
-			if teamIDDisplay == "" {
-				teamIDDisplay = "-"
+			empIDDisplay := u.EmpID
+			if empIDDisplay == "" {
+				empIDDisplay = "-"
 			}
-			row["team_id"] = []table.TableCell{table.NewTextCell(teamIDDisplay, "#4b5563", false)}
-			row["name"] = []table.TableCell{table.NewLinkCell(u.Name, "/admin/team/"+u.ID.Hex(), "#1890ff", true)}
+			row["emp_id"] = []table.TableCell{table.NewTextCell(empIDDisplay, "#4b5563", false)}
+			row["name"] = []table.TableCell{table.NewLinkCell(u.Name, "/admin/employee/"+u.ID.Hex(), "#1890ff", true)}
 			row["email"] = []table.TableCell{table.NewTextCell(u.Email, "#6b7280", false)}
 
 			roleName := "N/A"
@@ -94,7 +94,7 @@ func GetAll(c *gin.Context) {
 			row["role"] = []table.TableCell{table.NewTextCell(roleName, "", false)}
 			row["created_at"] = []table.TableCell{table.NewTextCell(u.CreatedAt.Format("02 Jan 2006"), "", false)}
 
-			if u.Status == models.UserStatusActive {
+			if u.Status == models.EmployeeStatusActive {
 				row["status"] = []table.TableCell{table.Badge("Active", table.BadgeColors["SUCCESS"])}
 			} else {
 				row["status"] = []table.TableCell{table.Badge(u.Status, table.BadgeColors["REJECTED"])}

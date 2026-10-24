@@ -8,7 +8,7 @@ import (
 
 	"lead-crm/backend/database"
 	authmodels "lead-crm/backend/internal/auth/models"
-	"lead-crm/backend/internal/user/models"
+	"lead-crm/backend/internal/employee/models"
 	"lead-crm/backend/utils"
 
 	"github.com/gin-gonic/gin"
@@ -53,20 +53,20 @@ func Refresh(c *gin.Context) {
 		return
 	}
 
-	userCol := database.GetCollection("users")
-	var user models.User
-	err = userCol.FindOne(c.Request.Context(), bson.M{
-		"_id":        session.UserID,
-		"status":     models.UserStatusActive,
+	empCol := database.GetCollection("employees")
+	var employee models.Employee
+	err = empCol.FindOne(c.Request.Context(), bson.M{
+		"_id":        session.EmployeeID,
+		"status":     models.EmployeeStatusActive,
 		"deleted_at": bson.M{"$exists": false},
-	}).Decode(&user)
+	}).Decode(&employee)
 
 	if err != nil {
-		response.Unauthorized(c, "User account not active")
+		response.Unauthorized(c, "Employee account not active")
 		return
 	}
 
-	newAccessToken, err := utils.GenerateAccessToken(user.ID.Hex(), user.Email, user.Name, session.ID.Hex())
+	newAccessToken, err := utils.GenerateAccessToken(employee.ID.Hex(), employee.Email, employee.Name, session.ID.Hex())
 	if err != nil {
 		log.Printf("[ERROR] [Refresh] Failed to generate access token: %v", err)
 		response.InternalServerError(c, "Failed to refresh session")

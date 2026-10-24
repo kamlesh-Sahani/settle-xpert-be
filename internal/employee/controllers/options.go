@@ -5,7 +5,7 @@ import (
 	"strconv"
 
 	"lead-crm/backend/database"
-	"lead-crm/backend/internal/user/models"
+	"lead-crm/backend/internal/employee/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kamlesh-Sahani/go-commons/response"
@@ -14,24 +14,21 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type UserOption struct {
+type EmployeeOption struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
 	Email string `json:"email"`
 	Link  string `json:"link,omitempty"`
 }
 
-// Options returns active users as lightweight key/label pairs for assignee selects.
+// Options returns active employees as lightweight key/label pairs for assignee selects.
 func Options(c *gin.Context) {
 	filter := bson.M{
-		"status":     models.UserStatusActive,
+		"status":     models.EmployeeStatusActive,
 		"deleted_at": bson.M{"$exists": false},
 	}
 
 	search := c.Query("search")
-	if search == "" {
-		search = c.Query("q")
-	}
 
 	page := 1
 	if p, err := strconv.Atoi(c.Query("page")); err == nil && p > 0 {
@@ -46,19 +43,15 @@ func Options(c *gin.Context) {
 		limit = 200
 	}
 
-	// Also support JSON payload if POST request
 	if c.Request.Method == "POST" && c.Request.ContentLength > 0 {
 		var req struct {
 			Search string `json:"search"`
-			Q      string `json:"q"`
 			Page   int    `json:"page"`
 			Limit  int    `json:"limit"`
 		}
 		if err := c.ShouldBindJSON(&req); err == nil {
 			if req.Search != "" {
 				search = req.Search
-			} else if req.Q != "" {
-				search = req.Q
 			}
 			if req.Page > 0 {
 				page = req.Page
@@ -76,7 +69,7 @@ func Options(c *gin.Context) {
 		}
 	}
 
-	collection := database.GetCollection("users")
+	collection := database.GetCollection("employees")
 	findOptions := options.Find().SetSort(bson.D{{Key: "name", Value: 1}})
 	querySkip := int64((page - 1) * limit)
 	findOptions.SetSkip(querySkip)
@@ -84,28 +77,28 @@ func Options(c *gin.Context) {
 
 	cursor, err := collection.Find(c.Request.Context(), filter, findOptions)
 	if err != nil {
-		log.Printf("[ERROR] [UserOptions] Failed to retrieve users: %v", err)
-		response.InternalServerError(c, "Unable to load team members. Please try again later.")
+		log.Printf("[ERROR] [EmployeeOptions] Failed to retrieve employees: %v", err)
+		response.InternalServerError(c, "Unable to load employees. Please try again later.")
 		return
 	}
 	defer cursor.Close(c.Request.Context())
 
-	var users []models.User
-	if err = cursor.All(c.Request.Context(), &users); err != nil {
-		log.Printf("[ERROR] [UserOptions] Failed to decode users: %v", err)
-		response.InternalServerError(c, "Unable to load team members. Please try again later.")
+	var employees []models.Employee
+	if err = cursor.All(c.Request.Context(), &employees); err != nil {
+		log.Printf("[ERROR] [EmployeeOptions] Failed to decode employees: %v", err)
+		response.InternalServerError(c, "Unable to load employees. Please try again later.")
 		return
 	}
 
-	result := make([]UserOption, 0, len(users))
-	for _, u := range users {
-		result = append(result, UserOption{
+	result := make([]EmployeeOption, 0, len(employees))
+	for _, u := range employees {
+		result = append(result, EmployeeOption{
 			Key:   u.ID.Hex(),
 			Value: u.Name,
 			Email: u.Email,
-			Link:  "/admin/team/" + u.ID.Hex(),
+			Link:  "/admin/employee/" + u.ID.Hex(),
 		})
 	}
 
-	response.Success(c, "User options fetched", result)
+	response.Success(c, "Employee options fetched", result)
 }

@@ -41,20 +41,20 @@ func Delete(c *gin.Context) {
 		return
 	}
 
-	// Check if this role is currently assigned to any active user
-	userCol := database.GetCollection("users")
-	userCount, err := userCol.CountDocuments(c.Request.Context(), bson.M{
+	// Check if this role is currently assigned to any active employee
+	empCol := database.GetCollection("employees")
+	empCount, err := empCol.CountDocuments(c.Request.Context(), bson.M{
 		"role_id":    bson.M{"$in": []any{objID, rawID}},
 		"deleted_at": bson.M{"$exists": false},
 	})
 	if err != nil {
-		log.Printf("[ERROR] [RoleDelete] Failed to check attached users: %v", err)
+		log.Printf("[ERROR] [RoleDelete] Failed to check attached employees: %v", err)
 		response.InternalServerError(c, "Unable to verify role usage. Please try again.")
 		return
 	}
 
-	if userCount > 0 {
-		response.BadRequest(c, "Cannot delete role because it is currently assigned to one or more users")
+	if empCount > 0 {
+		response.BadRequest(c, "Cannot delete role because it is currently assigned to one or more employees")
 		return
 	}
 

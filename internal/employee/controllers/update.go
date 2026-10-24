@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"lead-crm/backend/database"
-	"lead-crm/backend/internal/user/models"
+	"lead-crm/backend/internal/employee/models"
 	"lead-crm/backend/utils"
 
 	"github.com/gin-gonic/gin"
@@ -16,18 +16,15 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-type UpdateUserRequest struct {
-	UserID        string          `json:"userId"`
-	ID            string          `json:"id"`
+type UpdateEmployeeRequest struct {
+	ID            string          `json:"id" binding:"required"`
 	Name          *string         `json:"name"`
 	Email         *string         `json:"email"`
 	Password      *string         `json:"password"`
 	Status        *string         `json:"status"`
 	RoleID        *string         `json:"roleId"`
-	RoleIDSnake   *string         `json:"role_id"`
 	Phone         *string         `json:"phone"`
 	Logo          interface{}     `json:"logo"`
-	TeamID        *string         `json:"teamId"`
 	DOB           *string         `json:"dob"`
 	Gender        *string         `json:"gender"`
 	FatherName    *string         `json:"fatherName"`
@@ -41,24 +38,15 @@ type UpdateUserRequest struct {
 }
 
 func Update(c *gin.Context) {
-	var req UpdateUserRequest
+	var req UpdateEmployeeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, commonsutils.FormatValidationError(err))
 		return
 	}
 
-	targetID := req.UserID
-	if targetID == "" {
-		targetID = req.ID
-	}
-	if targetID == "" {
-		response.BadRequest(c, "User ID is required")
-		return
-	}
-
-	objID, err := primitive.ObjectIDFromHex(targetID)
+	objID, err := primitive.ObjectIDFromHex(req.ID)
 	if err != nil {
-		response.BadRequest(c, "Invalid user ID")
+		response.BadRequest(c, "Invalid employee ID")
 		return
 	}
 
@@ -77,9 +65,6 @@ func Update(c *gin.Context) {
 		if logoStr := parseLogo(req.Logo); logoStr != nil {
 			updateFields["logo"] = *logoStr
 		}
-	}
-	if req.TeamID != nil && *req.TeamID != "" {
-		updateFields["team_id"] = *req.TeamID
 	}
 	if req.DOB != nil {
 		updateFields["dob"] = *req.DOB
@@ -122,22 +107,16 @@ func Update(c *gin.Context) {
 		}
 	}
 
-	effectiveRoleID := req.RoleID
-	if (effectiveRoleID == nil || *effectiveRoleID == "") && req.RoleIDSnake != nil {
-		effectiveRoleID = req.RoleIDSnake
-	}
-
-	if effectiveRoleID != nil {
-		if *effectiveRoleID == "" {
+	if req.RoleID != nil {
+		if *req.RoleID == "" {
 			updateFields["role_id"] = nil
 		} else {
-			roleObjID, err := primitive.ObjectIDFromHex(*effectiveRoleID)
+			roleObjID, err := primitive.ObjectIDFromHex(*req.RoleID)
 			if err != nil {
 				response.BadRequest(c, "Invalid role ID format")
 				return
 			}
 
-			// Verify Role exists
 			roleCol := database.GetCollection("roles")
 			countRole, _ := roleCol.CountDocuments(c.Request.Context(), bson.M{"_id": roleObjID, "is_deleted": bson.M{"$ne": true}})
 			if countRole == 0 {
@@ -149,7 +128,7 @@ func Update(c *gin.Context) {
 		}
 	}
 
-	collection := database.GetCollection("users")
+	collection := database.GetCollection("employees")
 
 	if req.Email != nil {
 		cleanEmail := strings.TrimSpace(strings.ToLower(*req.Email))
@@ -157,14 +136,13 @@ func Update(c *gin.Context) {
 			response.BadRequest(c, "Email cannot be empty")
 			return
 		}
-
 		count, _ := collection.CountDocuments(c.Request.Context(), bson.M{
 			"email":      cleanEmail,
 			"_id":        bson.M{"$ne": objID},
 			"deleted_at": bson.M{"$exists": false},
 		})
 		if count > 0 {
-			response.Conflict(c, "User with this email already exists")
+			response.Conflict(c, "Employee with this email already exists")
 			return
 		}
 		updateFields["email"] = cleanEmail
@@ -178,7 +156,7 @@ func Update(c *gin.Context) {
 
 		hashedPassword, err := utils.Hash(*req.Password)
 		if err != nil {
-			log.Printf("[ERROR] [UserUpdate] Failed to hash password: %v", err)
+			log.Printf("[ERROR] [EmployeeUpdate] Failed to hash password: %v", err)
 			response.InternalServerError(c, "Unable to update password. Please try again.")
 			return
 		}
@@ -186,11 +164,11 @@ func Update(c *gin.Context) {
 		updateFields["password"] = hashedPassword
 	}
 
-	var existingUser models.User
+	var existingEmployee models.Employee
 	_ = collection.FindOne(c.Request.Context(), bson.M{
 		"_id":        objID,
 		"deleted_at": bson.M{"$exists": false},
-	}).Decode(&existingUser)
+	}).Decode(&existingEmployee)
 
 	result, err := collection.UpdateOne(
 		c.Request.Context(),
@@ -202,19 +180,19 @@ func Update(c *gin.Context) {
 	)
 
 	if err != nil {
-		log.Printf("[ERROR] [UserUpdate] Failed to update user: %v", err)
-		response.InternalServerError(c, "Unable to update user. Please try again.")
+		log.Printf("[ERROR] [EmployeeUpdate] Failed to update employee: %v", err)
+		response.InternalServerError(c, "Unable to update employee. Please try again.")
 		return
 	}
 
 	if result.MatchedCount == 0 {
-		response.NotFound(c, "User not found")
+		response.NotFound(c, "Employee not found")
 		return
 	}
 
-	RecordAuditLog(c, objID.Hex(), "UPDATE", existingUser, updateFields)
+	RecordAuditLog(c, objID.Hex(), "UPDATE", existingEmployee, updateFields)
 
-	response.Success(c, "User updated successfully", nil)
+	response.Success(c, "Employee updated successfully", nil)
 }
 
 type UpdateProfileRequest struct {
@@ -236,15 +214,15 @@ type UpdateProfileRequest struct {
 }
 
 func UpdateProfile(c *gin.Context) {
-	userIDStr, exists := c.Get("user_id")
+	empIDStr, exists := c.Get("employee_id")
 	if !exists {
 		response.Unauthorized(c, "Unauthorized")
 		return
 	}
 
-	userID, err := primitive.ObjectIDFromHex(userIDStr.(string))
+	empID, err := primitive.ObjectIDFromHex(empIDStr.(string))
 	if err != nil {
-		response.Unauthorized(c, "Invalid user ID")
+		response.Unauthorized(c, "Invalid employee ID")
 		return
 	}
 
@@ -254,19 +232,18 @@ func UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	collection := database.GetCollection("users")
-	var user models.User
-	err = collection.FindOne(c.Request.Context(), bson.M{"_id": userID, "deleted_at": bson.M{"$exists": false}}).Decode(&user)
+	collection := database.GetCollection("employees")
+	var employee models.Employee
+	err = collection.FindOne(c.Request.Context(), bson.M{"_id": empID, "deleted_at": bson.M{"$exists": false}}).Decode(&employee)
 	if err != nil {
-		response.NotFound(c, "User not found")
+		response.NotFound(c, "Employee not found")
 		return
 	}
 
-	// Permission map check - strictly verify permissions
 	permissionsMap := make(map[string]bool)
-	if user.RoleID != nil {
+	if employee.RoleID != nil {
 		var roleDoc bson.M
-		if err := database.GetCollection("roles").FindOne(c.Request.Context(), bson.M{"_id": user.RoleID}).Decode(&roleDoc); err == nil {
+		if err := database.GetCollection("roles").FindOne(c.Request.Context(), bson.M{"_id": employee.RoleID}).Decode(&roleDoc); err == nil {
 			if perms, ok := roleDoc["permissions"].(primitive.A); ok {
 				for _, p := range perms {
 					if pStr, ok := p.(string); ok {
@@ -343,7 +320,7 @@ func UpdateProfile(c *gin.Context) {
 			return
 		}
 		if req.CurrentPassword != nil && *req.CurrentPassword != "" {
-			if err := utils.VerifyHash(*req.CurrentPassword, user.Password); err != nil {
+			if err := utils.VerifyHash(*req.CurrentPassword, employee.Password); err != nil {
 				response.BadRequest(c, "Current password does not match")
 				return
 			}
@@ -356,13 +333,13 @@ func UpdateProfile(c *gin.Context) {
 		updateFields["password"] = hashedPassword
 	}
 
-	_, err = collection.UpdateOne(c.Request.Context(), bson.M{"_id": userID}, bson.M{"$set": updateFields})
+	_, err = collection.UpdateOne(c.Request.Context(), bson.M{"_id": empID}, bson.M{"$set": updateFields})
 	if err != nil {
 		response.InternalServerError(c, "Failed to update profile")
 		return
 	}
 
-	RecordAuditLog(c, userID.Hex(), "UPDATE_PROFILE", user, updateFields)
+	RecordAuditLog(c, empID.Hex(), "UPDATE_PROFILE", employee, updateFields)
 
 	response.Success(c, "Profile updated successfully", nil)
 }

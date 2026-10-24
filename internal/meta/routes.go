@@ -17,11 +17,10 @@ func RegisterRoutes(router *gin.Engine) {
 
 	// 2. Protected integration configuration endpoints
 	meta := router.Group("/api/v1/integration/meta")
-	meta.Use(middleware.Auth())
 	{
-		meta.GET("/get", middleware.RequirePermission("meta:read"), controllers.Get)
-		meta.POST("/list", middleware.RequirePermission("meta:read"), controllers.List)
-		meta.POST("/save", middleware.RequirePermission("meta:update"), controllers.Save)
-		meta.POST("/test-connection", middleware.RequirePermission("meta:update"), controllers.TestConnection)
+		meta.GET("/get", middleware.Protect("meta:read"), controllers.Get)
+		meta.POST("/list", middleware.Protect("meta:read"), controllers.List)
+		meta.POST("/save", middleware.Protect("meta:update"), controllers.Save)
+		meta.POST("/test-connection", middleware.Protect("meta:update"), controllers.TestConnection)
 	}
 }

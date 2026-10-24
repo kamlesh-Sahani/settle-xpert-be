@@ -7,9 +7,9 @@ import (
 )
 
 const (
-	UserStatusActive    = "ACTIVE"
-	UserStatusSuspended = "SUSPENDED"
-	UserStatusDeleted   = "DELETED"
+	EmployeeStatusActive    = "ACTIVE"
+	EmployeeStatusSuspended = "SUSPENDED"
+	EmployeeStatusDeleted   = "DELETED"
 )
 
 type Address struct {
@@ -20,9 +20,9 @@ type Address struct {
 	Zip     string `bson:"zip,omitempty" json:"zip,omitempty"`
 }
 
-type User struct {
+type Employee struct {
 	ID            primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
-	TeamID        string              `bson:"team_id,omitempty" json:"teamId,omitempty"`
+	EmpID         string              `bson:"emp_id,omitempty" json:"empId,omitempty"`
 	RoleID        *primitive.ObjectID `bson:"role_id,omitempty" json:"roleId,omitempty"`
 	Name          string              `bson:"name" json:"name"`
 	Email         string              `bson:"email" json:"email"`

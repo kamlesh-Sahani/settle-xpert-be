@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"lead-crm/backend/database"
-	"lead-crm/backend/internal/user/models"
+	"lead-crm/backend/internal/employee/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kamlesh-Sahani/go-commons/response"
@@ -14,46 +14,36 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-type DeleteUserRequest struct {
-	UserID string `json:"userId"`
-	ID     string `json:"id"`
+type DeleteEmployeeRequest struct {
+	ID string `json:"id" binding:"required"`
 }
 
 func Delete(c *gin.Context) {
-	var req DeleteUserRequest
+	var req DeleteEmployeeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, commonsutils.FormatValidationError(err))
 		return
 	}
 
-	targetID := req.UserID
-	if targetID == "" {
-		targetID = req.ID
-	}
-	if targetID == "" {
-		response.BadRequest(c, "User ID is required")
-		return
-	}
-
-	currentUserID := c.GetString("user_id")
-	if currentUserID != "" && currentUserID == targetID {
+	currentEmpID := c.GetString("employee_id")
+	if currentEmpID != "" && currentEmpID == req.ID {
 		response.BadRequest(c, "You cannot delete your own account")
 		return
 	}
 
-	objID, err := primitive.ObjectIDFromHex(targetID)
+	objID, err := primitive.ObjectIDFromHex(req.ID)
 	if err != nil {
-		response.BadRequest(c, "Invalid user ID")
+		response.BadRequest(c, "Invalid employee ID")
 		return
 	}
 
-	collection := database.GetCollection("users")
+	collection := database.GetCollection("employees")
 
-	var existingUser models.User
+	var existingEmployee models.Employee
 	_ = collection.FindOne(c.Request.Context(), bson.M{
 		"_id":        objID,
 		"deleted_at": bson.M{"$exists": false},
-	}).Decode(&existingUser)
+	}).Decode(&existingEmployee)
 
 	now := time.Now()
 	result, err := collection.UpdateOne(
@@ -65,24 +55,24 @@ func Delete(c *gin.Context) {
 		bson.M{
 			"$set": bson.M{
 				"deleted_at": now,
-				"status":     models.UserStatusDeleted,
+				"status":     models.EmployeeStatusDeleted,
 				"updated_at": now,
 			},
 		},
 	)
 
 	if err != nil {
-		log.Printf("[ERROR] [UserDelete] Failed to delete user: %v", err)
-		response.InternalServerError(c, "Unable to delete user. Please try again.")
+		log.Printf("[ERROR] [EmployeeDelete] Failed to delete employee: %v", err)
+		response.InternalServerError(c, "Unable to delete employee. Please try again.")
 		return
 	}
 
 	if result.MatchedCount == 0 {
-		response.NotFound(c, "User not found or already deleted")
+		response.NotFound(c, "Employee not found or already deleted")
 		return
 	}
 
-	RecordAuditLog(c, objID.Hex(), "DELETE", existingUser, nil)
+	RecordAuditLog(c, objID.Hex(), "DELETE", existingEmployee, nil)
 
-	response.Success(c, "User deleted successfully", nil)
+	response.Success(c, "Employee deleted successfully", nil)
 }

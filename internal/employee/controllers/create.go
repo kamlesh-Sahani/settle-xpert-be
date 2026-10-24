@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"lead-crm/backend/database"
-	"lead-crm/backend/internal/user/models"
+	"lead-crm/backend/internal/employee/models"
 	"lead-crm/backend/utils"
 
 	"github.com/gin-gonic/gin"
@@ -23,22 +23,21 @@ type AddressRequest struct {
 	Zip     string `json:"zip"`
 }
 
-type RegisterUserRequest struct {
+type RegisterEmployeeRequest struct {
 	Email         string          `json:"email" binding:"required,email"`
 	Name          string          `json:"name" binding:"required"`
 	Password      string          `json:"password" binding:"required,min=6"`
-	RoleID        *string         `json:"roleId"`
-	RoleIDSnake   *string         `json:"role_id"`
+	RoleID        string          `json:"roleId" binding:"required"`
 	Phone         string          `json:"phone"`
 	Status        *string         `json:"status"`
 	Logo          interface{}     `json:"logo"`
-	TeamID        *string         `json:"teamId"`
-	DOB           string          `json:"dob"`
-	Gender        string          `json:"gender"`
+	EmpID         *string         `json:"empId"`
+	DOB           string          `json:"dob" binding:"required"`
+	Gender        string          `json:"gender" binding:"required"`
 	FatherName    string          `json:"fatherName"`
 	MotherName    string          `json:"motherName"`
 	PANCard       string          `json:"panCard"`
-	DateOfJoining string          `json:"dateOfJoining"`
+	DateOfJoining string          `json:"dateOfJoining" binding:"required"`
 	AadharNumber  string          `json:"aadharNumber"`
 	AadharFront   interface{}     `json:"aadharFront"`
 	AadharBack    interface{}     `json:"aadharBack"`
@@ -75,64 +74,37 @@ func parseLogo(logo interface{}) *string {
 }
 
 func Create(c *gin.Context) {
-	var req RegisterUserRequest
+	var req RegisterEmployeeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, commonsutils.FormatValidationError(err))
 		return
 	}
 
-	effectiveRoleID := req.RoleID
-	if (effectiveRoleID == nil || *effectiveRoleID == "") && req.RoleIDSnake != nil {
-		effectiveRoleID = req.RoleIDSnake
-	}
-
-	if effectiveRoleID == nil || *effectiveRoleID == "" {
-		response.BadRequest(c, "Role is required")
-		return
-	}
-
-	if req.DOB == "" {
-		response.BadRequest(c, "Date of Birth is required")
-		return
-	}
-
-	if req.Gender == "" {
-		response.BadRequest(c, "Gender is required")
-		return
-	}
-
-	if req.DateOfJoining == "" {
-		response.BadRequest(c, "Date of Joining is required")
-		return
-	}
-
-	var roleObjID *primitive.ObjectID
-	id, err := primitive.ObjectIDFromHex(*effectiveRoleID)
+	roleObjID, err := primitive.ObjectIDFromHex(req.RoleID)
 	if err != nil {
 		response.BadRequest(c, "Invalid role ID format")
 		return
 	}
-	roleObjID = &id
 
-	collection := database.GetCollection("users")
+	collection := database.GetCollection("employees")
 
 	count, _ := collection.CountDocuments(c.Request.Context(), bson.M{
 		"email":      req.Email,
 		"deleted_at": bson.M{"$exists": false},
 	})
 	if count > 0 {
-		response.Conflict(c, "User with this email already exists")
+		response.Conflict(c, "Employee with this email already exists")
 		return
 	}
 
 	hashedPassword, err := utils.Hash(req.Password)
 	if err != nil {
-		log.Printf("[ERROR] [UserCreate] Failed to hash password: %v", err)
-		response.InternalServerError(c, "Unable to create user. Please try again.")
+		log.Printf("[ERROR] [EmployeeCreate] Failed to hash password: %v", err)
+		response.InternalServerError(c, "Unable to create employee. Please try again.")
 		return
 	}
 
-	status := models.UserStatusActive
+	status := models.EmployeeStatusActive
 	if req.Status != nil && *req.Status != "" {
 		status = *req.Status
 	}
@@ -144,13 +116,13 @@ func Create(c *gin.Context) {
 		}
 	}
 
-	var teamID string
-	if req.TeamID != nil && *req.TeamID != "" {
-		teamID = *req.TeamID
+	var empID string
+	if req.EmpID != nil && *req.EmpID != "" {
+		empID = *req.EmpID
 	} else {
-		generated, err := NextTeamIden(c.Request.Context())
+		generated, err := NextEmployeeIden(c.Request.Context())
 		if err == nil {
-			teamID = generated
+			empID = generated
 		}
 	}
 
@@ -179,9 +151,9 @@ func Create(c *gin.Context) {
 		}
 	}
 
-	user := models.User{
-		TeamID:        teamID,
-		RoleID:        roleObjID,
+	employee := models.Employee{
+		EmpID:         empID,
+		RoleID:        &roleObjID,
 		Email:         req.Email,
 		Name:          req.Name,
 		Password:      hashedPassword,
@@ -202,23 +174,23 @@ func Create(c *gin.Context) {
 		UpdatedAt:     time.Now(),
 	}
 
-	result, err := collection.InsertOne(c.Request.Context(), user)
+	result, err := collection.InsertOne(c.Request.Context(), employee)
 	if err != nil {
-		log.Printf("[ERROR] [UserCreate] Failed to insert user: %v", err)
-		response.InternalServerError(c, "Unable to create user. Please try again.")
+		log.Printf("[ERROR] [EmployeeCreate] Failed to insert employee: %v", err)
+		response.InternalServerError(c, "Unable to create employee. Please try again.")
 		return
 	}
 
-	user.ID = result.InsertedID.(primitive.ObjectID)
+	employee.ID = result.InsertedID.(primitive.ObjectID)
 
-	RecordAuditLog(c, user.ID.Hex(), "CREATE", nil, user)
+	RecordAuditLog(c, employee.ID.Hex(), "CREATE", nil, employee)
 
-	response.Created(c, "User created successfully", gin.H{
-		"id":     user.ID.Hex(),
-		"teamId": user.TeamID,
-		"name":   user.Name,
-		"email":  user.Email,
-		"roleId": effectiveRoleID,
-		"status": user.Status,
+	response.Created(c, "Employee created successfully", gin.H{
+		"id":     employee.ID.Hex(),
+		"empId":  employee.EmpID,
+		"name":   employee.Name,
+		"email":  employee.Email,
+		"roleId": req.RoleID,
+		"status": employee.Status,
 	})
 }

@@ -10,10 +10,10 @@ import (
 )
 
 type JWTClaims struct {
-	UserID    string `json:"sub"`
-	Email     string `json:"email"`
-	Name      string `json:"name"`
-	SessionID string `json:"sid"`
+	EmployeeID string `json:"sub"`
+	Email      string `json:"email"`
+	Name       string `json:"name"`
+	SessionID  string `json:"sid"`
 	jwt.RegisteredClaims
 }
 
@@ -25,7 +25,7 @@ func getJWTSecret() ([]byte, error) {
 	return []byte(secret), nil
 }
 
-func GenerateAccessToken(userID, email, name, sessionID string) (string, error) {
+func GenerateAccessToken(employeeID, email, name, sessionID string) (string, error) {
 	secret, err := getJWTSecret()
 	if err != nil {
 		return "", err
@@ -38,12 +38,12 @@ func GenerateAccessToken(userID, email, name, sessionID string) (string, error) 
 
 	now := time.Now()
 	claims := JWTClaims{
-		UserID:    userID,
-		Email:     email,
-		Name:      name,
-		SessionID: sessionID,
+		EmployeeID: employeeID,
+		Email:      email,
+		Name:       name,
+		SessionID:  sessionID,
 		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   userID,
+			Subject:   employeeID,
 			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(expiryMinutes) * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(now),
 		},
@@ -53,7 +53,7 @@ func GenerateAccessToken(userID, email, name, sessionID string) (string, error) 
 	return token.SignedString(secret)
 }
 
-func GenerateRefreshToken(userID, sessionID string) (string, error) {
+func GenerateRefreshToken(employeeID, sessionID string) (string, error) {
 	secret, err := getJWTSecret()
 	if err != nil {
 		return "", err
@@ -66,10 +66,10 @@ func GenerateRefreshToken(userID, sessionID string) (string, error) {
 
 	now := time.Now()
 	claims := JWTClaims{
-		UserID:    userID,
-		SessionID: sessionID,
+		EmployeeID: employeeID,
+		SessionID:  sessionID,
 		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   userID,
+			Subject:   employeeID,
 			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(expiryMinutes) * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(now),
 		},
@@ -86,8 +86,8 @@ func ParseJWTToken(tokenString string) (*JWTClaims, error) {
 	}
 
 	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("unexpected signing method")
+		if token.Method == nil || token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+			return nil, errors.New("invalid signing algorithm: only HS256 is permitted")
 		}
 		return secret, nil
 	})
@@ -98,7 +98,7 @@ func ParseJWTToken(tokenString string) (*JWTClaims, error) {
 
 	claims, ok := token.Claims.(*JWTClaims)
 	if !ok || !token.Valid {
-		return nil, errors.New("invalid token")
+		return nil, errors.New("invalid or expired token")
 	}
 
 	return claims, nil

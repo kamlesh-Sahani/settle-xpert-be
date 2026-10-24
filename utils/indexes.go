@@ -16,19 +16,15 @@ func EnsureCollectionIndexes() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Clean up legacy or non-partial indexes before creating models
-	usersCol := database.GetCollection("users")
-	if usersCol != nil {
-		_, _ = usersCol.Indexes().DropOne(ctx, "idx_users_tenant_status")
-
-		cursor, err := usersCol.Indexes().List(ctx)
+	empCol := database.GetCollection("employees")
+	if empCol != nil {
+		cursor, err := empCol.Indexes().List(ctx)
 		if err == nil {
 			var rawIndexes []bson.M
 			if err = cursor.All(ctx, &rawIndexes); err == nil {
 				for _, idx := range rawIndexes {
-					if idx["name"] == "idx_users_email" && idx["partialFilterExpression"] == nil {
-						log.Printf("[INDEX] Dropping old unconditional idx_users_email index to recreate with partial filter")
-						_, _ = usersCol.Indexes().DropOne(ctx, "idx_users_email")
+					if idx["name"] == "idx_employees_email" && idx["partialFilterExpression"] == nil {
+						_, _ = empCol.Indexes().DropOne(ctx, "idx_employees_email")
 					}
 				}
 			}
@@ -36,11 +32,11 @@ func EnsureCollectionIndexes() {
 	}
 
 	indexMap := map[string][]mongo.IndexModel{
-		"users": {
+		"employees": {
 			{
 				Keys: bson.D{{Key: "email", Value: 1}},
 				Options: options.Index().
-					SetName("idx_users_email").
+					SetName("idx_employees_email").
 					SetUnique(true).
 					SetPartialFilterExpression(bson.M{
 						"deleted_at": nil,
@@ -48,13 +44,17 @@ func EnsureCollectionIndexes() {
 			},
 			{
 				Keys:    bson.D{{Key: "status", Value: 1}},
-				Options: options.Index().SetName("idx_users_status"),
+				Options: options.Index().SetName("idx_employees_status"),
+			},
+			{
+				Keys:    bson.D{{Key: "emp_id", Value: 1}},
+				Options: options.Index().SetName("idx_employees_emp_id"),
 			},
 		},
 		"sessions": {
 			{
-				Keys:    bson.D{{Key: "user_id", Value: 1}},
-				Options: options.Index().SetName("idx_sessions_user_id"),
+				Keys:    bson.D{{Key: "employee_id", Value: 1}},
+				Options: options.Index().SetName("idx_sessions_employee_id"),
 			},
 			{
 				Keys:    bson.D{{Key: "refresh_token", Value: 1}},

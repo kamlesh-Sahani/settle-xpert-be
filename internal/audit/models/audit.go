@@ -17,7 +17,7 @@ const (
 type AuditLog struct {
 	ID          primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
 	TenantID    *primitive.ObjectID `bson:"tenant_id,omitempty" json:"tenantId,omitempty"`
-	UserID      *primitive.ObjectID `bson:"user_id,omitempty" json:"userId,omitempty"`
+	EmployeeID  *primitive.ObjectID `bson:"employee_id,omitempty" json:"employeeId,omitempty"`
 	EntityID    string              `bson:"entity_id,omitempty" json:"entityId,omitempty"`
 	EntityType  string              `bson:"entity_type,omitempty" json:"entityType,omitempty"`
 	ActionBy    string              `bson:"action_by" json:"actionBy"`
