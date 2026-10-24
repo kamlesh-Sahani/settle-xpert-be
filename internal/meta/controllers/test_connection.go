@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"lead-crm/backend/database"
-	"lead-crm/backend/internal/integration/models"
+	"lead-crm/backend/internal/meta/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kamlesh-Sahani/go-commons/response"
@@ -83,7 +83,7 @@ func TestConnection(c *gin.Context) {
 	// If token not provided in request, load from DB
 	if token == "" || strings.Contains(token, "...") {
 		var config models.MetaIntegrationConfig
-		if err := coll.FindOne(c.Request.Context(), bson.M{"provider": "META_ADS"}).Decode(&config); err == nil {
+		if err := coll.FindOne(c.Request.Context(), bson.M{}).Decode(&config); err == nil {
 			token = config.PageAccessToken
 		}
 	}
@@ -101,7 +101,7 @@ func TestConnection(c *gin.Context) {
 
 	// Update PageName in DB if empty
 	if verified.PageName != "" {
-		_, _ = coll.UpdateOne(c.Request.Context(), bson.M{"provider": "META_ADS"}, bson.M{
+		_, _ = coll.UpdateOne(c.Request.Context(), bson.M{}, bson.M{
 			"$set": bson.M{
 				"page_name": verified.PageName,
 				"page_id":   verified.PageID,

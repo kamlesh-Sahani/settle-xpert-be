@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"lead-crm/backend/database"
-	integrationModels "lead-crm/backend/internal/integration/models"
+	metaModels "lead-crm/backend/internal/meta/models"
 	leadModels "lead-crm/backend/internal/lead/models"
 
 	"github.com/gin-gonic/gin"
@@ -34,14 +34,14 @@ func VerifyWebhook(c *gin.Context) {
 		return
 	}
 
-	var config integrationModels.MetaIntegrationConfig
+	var config metaModels.MetaIntegrationConfig
 	coll := database.GetCollection("integrations")
 	if coll == nil {
 		c.AbortWithStatus(http.StatusForbidden)
 		return
 	}
 
-	if err := coll.FindOne(c.Request.Context(), bson.M{"provider": "META_ADS"}).Decode(&config); err != nil || config.VerifyToken == "" {
+	if err := coll.FindOne(c.Request.Context(), bson.M{}).Decode(&config); err != nil || config.VerifyToken == "" {
 		log.Printf("[META WEBHOOK] Verification rejected: Meta integration not configured")
 		c.AbortWithStatus(http.StatusForbidden)
 		return
@@ -81,9 +81,9 @@ func HandleWebhook(c *gin.Context) {
 
 	// Validate HMAC SHA256 signature if AppSecret is configured
 	coll := database.GetCollection("integrations")
-	var config integrationModels.MetaIntegrationConfig
+	var config metaModels.MetaIntegrationConfig
 	if coll != nil {
-		_ = coll.FindOne(c.Request.Context(), bson.M{"provider": "META_ADS"}).Decode(&config)
+		_ = coll.FindOne(c.Request.Context(), bson.M{}).Decode(&config)
 	}
 
 	if config.AppSecret != "" {
@@ -95,7 +95,7 @@ func HandleWebhook(c *gin.Context) {
 		}
 	}
 
-	var payload integrationModels.MetaWebhookPayload
+	var payload metaModels.MetaWebhookPayload
 	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid payload format"})
 		return
@@ -105,7 +105,7 @@ func HandleWebhook(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "EVENT_RECEIVED"})
 
 	// Process lead asynchronously
-	go func(p integrationModels.MetaWebhookPayload, raw string) {
+	go func(p metaModels.MetaWebhookPayload, raw string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
@@ -129,7 +129,7 @@ func processLead(ctx context.Context, leadgenID, formID, pageID, adID, raw strin
 	leadColl := database.GetCollection("leads")
 	intColl := database.GetCollection("integrations")
 
-	syncLog := integrationModels.MetaWebhookLog{
+	syncLog := metaModels.MetaWebhookLog{
 		LeadgenID:  leadgenID,
 		PageID:     pageID,
 		FormID:     formID,
@@ -138,8 +138,8 @@ func processLead(ctx context.Context, leadgenID, formID, pageID, adID, raw strin
 	}
 
 	// 1. Fetch integration configuration
-	var config integrationModels.MetaIntegrationConfig
-	if err := intColl.FindOne(ctx, bson.M{"provider": "META_ADS"}).Decode(&config); err != nil {
+	var config metaModels.MetaIntegrationConfig
+	if err := intColl.FindOne(ctx, bson.M{}).Decode(&config); err != nil {
 		syncLog.Status = "FAILED"
 		syncLog.ErrorMessage = "Meta integration is not configured in CRM"
 		if logColl != nil {
@@ -173,7 +173,7 @@ func processLead(ctx context.Context, leadgenID, formID, pageID, adID, raw strin
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	var metaLead integrationModels.MetaLeadDetails
+	var metaLead metaModels.MetaLeadDetails
 	if err := json.Unmarshal(body, &metaLead); err != nil {
 		syncLog.Status = "FAILED"
 		syncLog.ErrorMessage = "Failed to parse Meta lead response"

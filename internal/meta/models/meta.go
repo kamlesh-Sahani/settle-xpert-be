@@ -6,10 +6,16 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+type MetaConfigStatus string
+
+const (
+	MetaConfigStatusActive   MetaConfigStatus = "ACTIVE"
+	MetaConfigStatusInactive MetaConfigStatus = "IN_ACTIVE"
+)
+
 type MetaIntegrationConfig struct {
 	ID                 primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
-	Provider           string              `bson:"provider" json:"provider"` // "META_ADS"
-	IsActive           bool                `bson:"is_active" json:"isActive"`
+	Status             MetaConfigStatus    `bson:"status" json:"status"`
 	VerifyToken        string              `bson:"verify_token" json:"verifyToken"`
 	PageAccessToken    string              `bson:"page_access_token" json:"pageAccessToken"`
 	PageID             string              `bson:"page_id" json:"pageId"`

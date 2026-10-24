@@ -2,7 +2,7 @@ package controllers
 
 import (
 	"lead-crm/backend/database"
-	"lead-crm/backend/internal/integration/models"
+	"lead-crm/backend/internal/meta/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kamlesh-Sahani/go-commons/response"
@@ -21,17 +21,15 @@ func Get(c *gin.Context) {
 	coll := database.GetCollection("integrations")
 	var config models.MetaIntegrationConfig
 
-	if err := coll.FindOne(c.Request.Context(), bson.M{"provider": "META_ADS"}).Decode(&config); err != nil {
+	if err := coll.FindOne(c.Request.Context(), bson.M{}).Decode(&config); err != nil {
 		config = models.MetaIntegrationConfig{
-			Provider: "META_ADS",
-			IsActive: false,
+			Status: models.MetaConfigStatusInactive,
 		}
 	}
 
 	res := gin.H{
 		"id":                config.ID.Hex(),
-		"provider":          config.Provider,
-		"isActive":          config.IsActive,
+		"status":            config.Status,
 		"verifyToken":       config.VerifyToken,
 		"pageId":            config.PageID,
 		"pageName":          config.PageName,

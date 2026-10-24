@@ -1,7 +1,7 @@
 package controllers
 
 import (
-	"lead-crm/backend/internal/integration/models"
+	"lead-crm/backend/internal/meta/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kamlesh-Sahani/go-commons/table"

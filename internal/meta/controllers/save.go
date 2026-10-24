@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"lead-crm/backend/database"
-	"lead-crm/backend/internal/integration/models"
+	"lead-crm/backend/internal/meta/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kamlesh-Sahani/go-commons/response"
@@ -14,13 +14,12 @@ import (
 )
 
 type SaveRequest struct {
-	IsActive          bool              `json:"isActive"`
-	VerifyToken       string            `json:"verifyToken"`
-	PageAccessToken   string            `json:"pageAccessToken"`
-	PageID            string            `json:"pageId"`
-	PageName          string            `json:"pageName"`
-	AppSecret         string            `json:"appSecret"`
-	FieldMapping      map[string]string `json:"fieldMapping"`
+	VerifyToken     string            `json:"verifyToken"`
+	PageAccessToken string            `json:"pageAccessToken"`
+	PageID          string            `json:"pageId"`
+	PageName        string            `json:"pageName"`
+	AppSecret       string            `json:"appSecret"`
+	FieldMapping    map[string]string `json:"fieldMapping"`
 }
 
 // Save updates or creates Meta Ads configuration
@@ -34,7 +33,7 @@ func Save(c *gin.Context) {
 	coll := database.GetCollection("integrations")
 
 	var existing models.MetaIntegrationConfig
-	_ = coll.FindOne(c.Request.Context(), bson.M{"provider": "META_ADS"}).Decode(&existing)
+	_ = coll.FindOne(c.Request.Context(), bson.M{}).Decode(&existing)
 
 	pageAccessToken := strings.TrimSpace(req.PageAccessToken)
 	if pageAccessToken == "" || strings.Contains(pageAccessToken, "...") {
@@ -47,8 +46,10 @@ func Save(c *gin.Context) {
 	}
 
 	// Live Meta Verification: verify credentials against Meta Graph API
+	status := models.MetaConfigStatusActive
 	verified, err := VerifyMetaCredentials(pageAccessToken, req.PageID)
 	if err != nil {
+		status = models.MetaConfigStatusInactive
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -80,8 +81,7 @@ func Save(c *gin.Context) {
 	fieldMapping := req.FieldMapping
 
 	updateDoc := bson.M{
-		"provider":          "META_ADS",
-		"is_active":         req.IsActive,
+		"status":            status,
 		"verify_token":      verifyToken,
 		"page_access_token": pageAccessToken,
 		"page_id":           pageID,
@@ -91,8 +91,13 @@ func Save(c *gin.Context) {
 		"updated_at":        time.Now(),
 	}
 
+	filter := bson.M{}
+	if !existing.ID.IsZero() {
+		filter = bson.M{"_id": existing.ID}
+	}
+
 	opts := options.Update().SetUpsert(true)
-	_, err = coll.UpdateOne(c.Request.Context(), bson.M{"provider": "META_ADS"}, bson.M{
+	_, err = coll.UpdateOne(c.Request.Context(), filter, bson.M{
 		"$set": updateDoc,
 		"$setOnInsert": bson.M{
 			"created_at": time.Now(),

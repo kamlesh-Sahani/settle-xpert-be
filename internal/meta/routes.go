@@ -1,7 +1,7 @@
-package integration
+package meta
 
 import (
-	"lead-crm/backend/internal/integration/controllers"
+	"lead-crm/backend/internal/meta/controllers"
 	"lead-crm/backend/middleware"
 
 	"github.com/gin-gonic/gin"

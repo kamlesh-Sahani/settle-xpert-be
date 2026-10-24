@@ -1,7 +1,7 @@
 package routes
 
 import (
-	"lead-crm/backend/internal/integration"
+	"lead-crm/backend/internal/meta"
 	"lead-crm/backend/internal/role"
 	"lead-crm/backend/internal/user"
 
@@ -18,6 +18,6 @@ func SetupRoutes(router *gin.Engine) {
 	// Module routes
 	user.RegisterRoutes(router)
 	role.RegisterRoutes(router)
-	integration.RegisterRoutes(router)
+	meta.RegisterRoutes(router)
 }
 
