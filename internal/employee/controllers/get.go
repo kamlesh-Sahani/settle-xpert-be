@@ -45,6 +45,16 @@ func GetByID(c *gin.Context) {
 		}
 	}
 
+	departmentName := ""
+	if employee.DepartmentID != nil {
+		var deptDoc bson.M
+		if err := database.GetCollection("departments").FindOne(c.Request.Context(), bson.M{"_id": employee.DepartmentID}).Decode(&deptDoc); err == nil {
+			if name, ok := deptDoc["name"].(string); ok {
+				departmentName = name
+			}
+		}
+	}
+
 	empData := gin.H{
 		"id":            employee.ID.Hex(),
 		"empId":         employee.EmpID,
@@ -69,6 +79,10 @@ func GetByID(c *gin.Context) {
 	}
 	if employee.RoleID != nil {
 		empData["roleId"] = employee.RoleID.Hex()
+	}
+	if employee.DepartmentID != nil {
+		empData["departmentId"] = employee.DepartmentID.Hex()
+		empData["departmentName"] = departmentName
 	}
 
 	response.Success(c, "Employee retrieved successfully", empData)

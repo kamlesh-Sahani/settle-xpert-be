@@ -30,6 +30,23 @@ func GetAll(c *gin.Context) {
 		}
 	}
 
+	deptsCollection := database.GetCollection("departments")
+	deptMap := make(map[string]string)
+	if deptsCollection != nil {
+		deptCursor, _ := deptsCollection.Find(c.Request.Context(), bson.M{"deleted_at": bson.M{"$exists": false}}, options.Find().SetProjection(bson.M{"_id": 1, "name": 1}))
+		if deptCursor != nil {
+			var depts []bson.M
+			_ = deptCursor.All(c.Request.Context(), &depts)
+			for _, d := range depts {
+				if id, ok := d["_id"].(primitive.ObjectID); ok {
+					if name, ok := d["name"].(string); ok {
+						deptMap[id.Hex()] = name
+					}
+				}
+			}
+		}
+	}
+
 	table.ExecuteTableList[models.Employee](c, table.TableListConfig[models.Employee]{
 		CollectionName: "employees",
 		EntityName:     "employees",
@@ -47,20 +64,22 @@ func GetAll(c *gin.Context) {
 		},
 		DefaultSort: "created_at",
 		Projection: bson.M{
-			"_id":        1,
-			"emp_id":     1,
-			"name":       1,
-			"email":      1,
-			"phone":      1,
-			"role_id":    1,
-			"status":     1,
-			"created_at": 1,
+			"_id":           1,
+			"emp_id":        1,
+			"name":          1,
+			"email":         1,
+			"phone":         1,
+			"role_id":       1,
+			"department_id": 1,
+			"status":        1,
+			"created_at":    1,
 		},
 		Columns: []table.TableColumn{
 			{ID: "emp_id", Title: "Employee ID", Sortable: true, Width: 150, Type: table.ColumnTypeText},
 			{ID: "name", Title: "Name", Sortable: true, Width: 220, Type: table.ColumnTypeText},
 			{ID: "email", Title: "Email Address", Sortable: true, Width: 220, Type: table.ColumnTypeText},
 			{ID: "role", Title: "Role", Sortable: false, Width: 160, Type: table.ColumnTypeText},
+			{ID: "department", Title: "Department", Sortable: false, Width: 160, Type: table.ColumnTypeText},
 			{
 				ID:       "status",
 				Title:    "Status",
@@ -92,6 +111,14 @@ func GetAll(c *gin.Context) {
 				}
 			}
 			row["role"] = []table.TableCell{table.NewTextCell(roleName, "", false)}
+
+			deptName := "N/A"
+			if u.DepartmentID != nil {
+				if name, exists := deptMap[u.DepartmentID.Hex()]; exists {
+					deptName = name
+				}
+			}
+			row["department"] = []table.TableCell{table.NewTextCell(deptName, "", false)}
 			row["created_at"] = []table.TableCell{table.NewTextCell(u.CreatedAt.Format("02 Jan 2006"), "", false)}
 
 			if u.Status == models.EmployeeStatusActive {

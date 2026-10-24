@@ -23,6 +23,7 @@ type UpdateEmployeeRequest struct {
 	Password      *string         `json:"password"`
 	Status        *string         `json:"status"`
 	RoleID        *string         `json:"roleId"`
+	DepartmentID  *string         `json:"departmentId"`
 	Phone         *string         `json:"phone"`
 	Logo          interface{}     `json:"logo"`
 	DOB           *string         `json:"dob"`
@@ -126,6 +127,21 @@ func Update(c *gin.Context) {
 
 			updateFields["role_id"] = roleObjID
 		}
+	}
+
+	if req.DepartmentID != nil && *req.DepartmentID != "" {
+		deptObjID, err := primitive.ObjectIDFromHex(*req.DepartmentID)
+		if err != nil {
+			response.BadRequest(c, "Invalid department ID format")
+			return
+		}
+		deptCol := database.GetCollection("departments")
+		countDept, _ := deptCol.CountDocuments(c.Request.Context(), bson.M{"_id": deptObjID, "deleted_at": bson.M{"$exists": false}})
+		if countDept == 0 {
+			response.NotFound(c, "Department not found")
+			return
+		}
+		updateFields["department_id"] = deptObjID
 	}
 
 	collection := database.GetCollection("employees")

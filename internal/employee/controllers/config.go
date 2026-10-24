@@ -51,6 +51,17 @@ func GetConfig(c *gin.Context) {
 		}
 	}
 
+	var departmentName string
+	if employee.DepartmentID != nil {
+		deptCol := database.GetCollection("departments")
+		var dept bson.M
+		if err := deptCol.FindOne(c.Request.Context(), bson.M{"_id": employee.DepartmentID}).Decode(&dept); err == nil {
+			if name, ok := dept["name"].(string); ok {
+				departmentName = name
+			}
+		}
+	}
+
 	var roleIDStr string
 	if employee.RoleID != nil {
 		roleIDStr = employee.RoleID.Hex()
@@ -84,6 +95,11 @@ func GetConfig(c *gin.Context) {
 		"aadharFront":   employee.AadharFront,
 		"aadharBack":    employee.AadharBack,
 		"address":       employee.Address,
+	}
+
+	if employee.DepartmentID != nil {
+		empData["departmentId"] = employee.DepartmentID.Hex()
+		empData["departmentName"] = departmentName
 	}
 
 	response.Success(c, "Configuration loaded successfully", gin.H{

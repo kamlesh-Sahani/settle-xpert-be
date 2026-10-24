@@ -28,6 +28,7 @@ type RegisterEmployeeRequest struct {
 	Name          string          `json:"name" binding:"required"`
 	Password      string          `json:"password" binding:"required,min=6"`
 	RoleID        string          `json:"roleId" binding:"required"`
+	DepartmentID  string          `json:"departmentId" binding:"required"`
 	Phone         string          `json:"phone"`
 	Status        *string         `json:"status"`
 	Logo          interface{}     `json:"logo"`
@@ -83,6 +84,19 @@ func Create(c *gin.Context) {
 	roleObjID, err := primitive.ObjectIDFromHex(req.RoleID)
 	if err != nil {
 		response.BadRequest(c, "Invalid role ID format")
+		return
+	}
+
+	deptObjID, err := primitive.ObjectIDFromHex(req.DepartmentID)
+	if err != nil {
+		response.BadRequest(c, "Invalid department ID format")
+		return
+	}
+
+	deptCol := database.GetCollection("departments")
+	deptCount, _ := deptCol.CountDocuments(c.Request.Context(), bson.M{"_id": deptObjID, "deleted_at": bson.M{"$exists": false}})
+	if deptCount == 0 {
+		response.BadRequest(c, "Selected department not found")
 		return
 	}
 
@@ -154,6 +168,7 @@ func Create(c *gin.Context) {
 	employee := models.Employee{
 		EmpID:         empID,
 		RoleID:        &roleObjID,
+		DepartmentID:  &deptObjID,
 		Email:         req.Email,
 		Name:          req.Name,
 		Password:      hashedPassword,
@@ -186,11 +201,12 @@ func Create(c *gin.Context) {
 	RecordAuditLog(c, employee.ID.Hex(), "CREATE", nil, employee)
 
 	response.Created(c, "Employee created successfully", gin.H{
-		"id":     employee.ID.Hex(),
-		"empId":  employee.EmpID,
-		"name":   employee.Name,
-		"email":  employee.Email,
-		"roleId": req.RoleID,
-		"status": employee.Status,
+		"id":           employee.ID.Hex(),
+		"empId":        employee.EmpID,
+		"name":         employee.Name,
+		"email":        employee.Email,
+		"roleId":       req.RoleID,
+		"departmentId": req.DepartmentID,
+		"status":       employee.Status,
 	})
 }

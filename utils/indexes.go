@@ -71,6 +71,21 @@ func EnsureCollectionIndexes() {
 				Options: options.Index().SetName("idx_roles_name"),
 			},
 		},
+		"departments": {
+			{
+				Keys: bson.D{{Key: "code", Value: 1}},
+				Options: options.Index().
+					SetName("idx_departments_code").
+					SetUnique(true).
+					SetPartialFilterExpression(bson.M{
+						"deleted_at": bson.M{"$exists": false},
+					}),
+			},
+			{
+				Keys:    bson.D{{Key: "name", Value: 1}},
+				Options: options.Index().SetName("idx_departments_name"),
+			},
+		},
 		"leads": {
 			{
 				Keys:    bson.D{{Key: "phone", Value: 1}},

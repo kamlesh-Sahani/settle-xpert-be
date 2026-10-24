@@ -24,6 +24,7 @@ type Employee struct {
 	ID            primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
 	EmpID         string              `bson:"emp_id,omitempty" json:"empId,omitempty"`
 	RoleID        *primitive.ObjectID `bson:"role_id,omitempty" json:"roleId,omitempty"`
+	DepartmentID  *primitive.ObjectID `bson:"department_id,omitempty" json:"departmentId,omitempty"`
 	Name          string              `bson:"name" json:"name"`
 	Email         string              `bson:"email" json:"email"`
 	Password      string              `bson:"password" json:"-"`

@@ -293,6 +293,35 @@ var AvailablePermissions = []PermissionGroup{
 		},
 	},
 	{
+		Module: "Departments",
+		Permissions: []PermissionItem{
+			{
+				ID:          "department:read",
+				Title:       "View Departments",
+				Description: "Can view department directory and details",
+				Category:    "Departments",
+			},
+			{
+				ID:          "department:create",
+				Title:       "Create Department",
+				Description: "Can create new company departments",
+				Category:    "Departments",
+			},
+			{
+				ID:          "department:update",
+				Title:       "Update Department",
+				Description: "Can edit department names, codes, or status",
+				Category:    "Departments",
+			},
+			{
+				ID:          "department:delete",
+				Title:       "Delete Department",
+				Description: "Can delete unused company departments",
+				Category:    "Departments",
+			},
+		},
+	},
+	{
 		Module: "Role Management",
 		Permissions: []PermissionItem{
 			{
