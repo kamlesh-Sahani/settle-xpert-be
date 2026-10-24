@@ -338,6 +338,101 @@ var AvailablePermissions = []PermissionGroup{
 			},
 		},
 	},
+	{
+		Module: "Profile",
+		Permissions: []PermissionItem{
+			{
+				ID:          "profile:update_name",
+				Title:       "Update Name",
+				Description: "Can change their own display name",
+				Category:    "Profile",
+			},
+			{
+				ID:          "profile:update_phone",
+				Title:       "Update Phone Number",
+				Description: "Can update their own contact phone number",
+				Category:    "Profile",
+			},
+			{
+				ID:          "profile:update_photo",
+				Title:       "Update Profile Photo",
+				Description: "Can upload or change their profile avatar image",
+				Category:    "Profile",
+			},
+			{
+				ID:          "profile:update_dob",
+				Title:       "Update Date of Birth",
+				Description: "Can update their date of birth",
+				Category:    "Profile",
+			},
+			{
+				ID:          "profile:update_gender",
+				Title:       "Update Gender",
+				Description: "Can update their gender",
+				Category:    "Profile",
+			},
+			{
+				ID:          "profile:update_father_name",
+				Title:       "Update Father's Name",
+				Description: "Can update their father's name",
+				Category:    "Profile",
+			},
+			{
+				ID:          "profile:update_mother_name",
+				Title:       "Update Mother's Name",
+				Description: "Can update their mother's name",
+				Category:    "Profile",
+			},
+			{
+				ID:          "profile:update_date_of_joining",
+				Title:       "Update Date of Joining",
+				Description: "Can update their date of joining",
+				Category:    "Profile",
+			},
+			{
+				ID:          "profile:update_pan_card",
+				Title:       "Update PAN Card",
+				Description: "Can update their PAN card number",
+				Category:    "Profile",
+			},
+			{
+				ID:          "profile:update_aadhar_number",
+				Title:       "Update Aadhar Number",
+				Description: "Can update their Aadhar number",
+				Category:    "Profile",
+			},
+			{
+				ID:          "profile:update_aadhar_front",
+				Title:       "Update Aadhar Card (Front)",
+				Description: "Can upload or update the front side of their Aadhar card",
+				Category:    "Profile",
+			},
+			{
+				ID:          "profile:update_aadhar_back",
+				Title:       "Update Aadhar Card (Back)",
+				Description: "Can upload or update the back side of their Aadhar card",
+				Category:    "Profile",
+			},
+			{
+				ID:          "profile:update_address",
+				Title:       "Update Address",
+				Description: "Can update their residential address details",
+				Category:    "Profile",
+			},
+			{
+				ID:          "profile:update_password",
+				Title:       "Update Password",
+				Description: "Can update their own account password",
+				Category:    "Profile",
+			},
+			{
+				ID:          "profile:update_theme",
+				Title:       "Update Theme",
+				Description: "Can customize the application theme and appearance",
+				Category:    "Profile",
+			},
+		},
+	},
 }
 
 // GetAllPermissionIDs returns a slice of all granular permission strings in the system
