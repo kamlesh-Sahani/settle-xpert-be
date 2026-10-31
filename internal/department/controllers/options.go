@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"regexp"
+
 	"lead-crm/backend/database"
 	"lead-crm/backend/internal/department/models"
 
@@ -27,9 +29,10 @@ func Options(c *gin.Context) {
 	}
 
 	if search != "" {
+		escaped := regexp.QuoteMeta(search)
 		filter["$or"] = []bson.M{
-			{"name": primitive.Regex{Pattern: search, Options: "i"}},
-			{"code": primitive.Regex{Pattern: search, Options: "i"}},
+			{"name": primitive.Regex{Pattern: escaped, Options: "i"}},
+			{"code": primitive.Regex{Pattern: escaped, Options: "i"}},
 		}
 	}
 

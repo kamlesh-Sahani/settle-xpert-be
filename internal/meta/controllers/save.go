@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"log"
 	"strings"
 	"time"
 
@@ -47,10 +48,11 @@ func Save(c *gin.Context) {
 
 	// Live Meta Verification: verify credentials against Meta Graph API
 	status := models.MetaConfigStatusActive
-	verified, err := VerifyMetaCredentials(pageAccessToken, req.PageID)
+	verified, err := VerifyMetaCredentials(c.Request.Context(), pageAccessToken, req.PageID)
 	if err != nil {
 		status = models.MetaConfigStatusInactive
-		response.BadRequest(c, err.Error())
+		log.Printf("[WARN] [MetaIntegration] Verification failed: %v", err)
+		response.BadRequest(c, "Meta connection verification failed. Please check your credentials.")
 		return
 	}
 

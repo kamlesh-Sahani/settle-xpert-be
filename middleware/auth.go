@@ -91,7 +91,14 @@ func Protect(requiredPermissions ...string) gin.HandlerFunc {
 			}}},
 		}
 
-		cursor, err := database.GetCollection("sessions").Aggregate(c.Request.Context(), pipeline)
+		sessionCol := database.GetCollection("sessions")
+		if sessionCol == nil {
+			response.InternalServerError(c, "Authentication service unavailable")
+			c.Abort()
+			return
+		}
+
+		cursor, err := sessionCol.Aggregate(c.Request.Context(), pipeline)
 		if err != nil {
 			response.Unauthorized(c, "Authentication verification failed")
 			c.Abort()

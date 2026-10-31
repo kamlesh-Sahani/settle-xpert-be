@@ -1,9 +1,11 @@
 package controllers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -15,6 +17,15 @@ import (
 	"github.com/kamlesh-Sahani/go-commons/response"
 	"go.mongodb.org/mongo-driver/bson"
 )
+
+var metaHTTPClient = &http.Client{
+	Timeout: 15 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 20,
+		IdleConnTimeout:     90 * time.Second,
+	},
+}
 
 type TestConnectionRequest struct {
 	PageAccessToken string `json:"pageAccessToken"`
@@ -28,7 +39,7 @@ type MetaVerificationResult struct {
 }
 
 // VerifyMetaCredentials validates access token and page against Meta Graph API
-func VerifyMetaCredentials(token, pageID string) (*MetaVerificationResult, error) {
+func VerifyMetaCredentials(ctx context.Context, token, pageID string) (*MetaVerificationResult, error) {
 	target := "me"
 	cleanPageID := strings.TrimSpace(pageID)
 	if cleanPageID != "" {
@@ -36,10 +47,14 @@ func VerifyMetaCredentials(token, pageID string) (*MetaVerificationResult, error
 	}
 	url := fmt.Sprintf("https://graph.facebook.com/v21.0/%s?fields=id,name&access_token=%s", target, token)
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("network error connecting to Meta: %v", err)
+		return nil, err
+	}
+
+	resp, err := metaHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("network error connecting to Meta: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -93,9 +108,10 @@ func TestConnection(c *gin.Context) {
 		return
 	}
 
-	verified, err := VerifyMetaCredentials(token, req.PageID)
+	verified, err := VerifyMetaCredentials(c.Request.Context(), token, req.PageID)
 	if err != nil {
-		response.BadRequest(c, err.Error())
+		log.Printf("[WARN] [MetaIntegration] Verification failed: %v", err)
+		response.BadRequest(c, "Meta connection verification failed. Please check your credentials.")
 		return
 	}
 

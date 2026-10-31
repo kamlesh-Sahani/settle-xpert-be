@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"regexp"
 	"strings"
 	"time"
 
@@ -39,7 +40,7 @@ func Create(c *gin.Context) {
 	err := col.FindOne(ctx, bson.M{
 		"deleted_at": bson.M{"$exists": false},
 		"$or": []bson.M{
-			{"name": primitive.Regex{Pattern: "^" + name + "$", Options: "i"}},
+			{"name": primitive.Regex{Pattern: "^" + regexp.QuoteMeta(name) + "$", Options: "i"}},
 			{"code": code},
 		},
 	}).Decode(&existing)

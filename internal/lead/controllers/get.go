@@ -1,6 +1,9 @@
 package controllers
 
 import (
+	"errors"
+	"log"
+
 	"lead-crm/backend/database"
 	"lead-crm/backend/internal/lead/models"
 
@@ -8,6 +11,7 @@ import (
 	"github.com/kamlesh-Sahani/go-commons/response"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 func GetByID(c *gin.Context) {
@@ -35,7 +39,12 @@ func GetByID(c *gin.Context) {
 
 	var lead models.Lead
 	if err := col.FindOne(ctx, filter).Decode(&lead); err != nil {
-		response.NotFound(c, "Lead not found")
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			response.NotFound(c, "Lead not found")
+			return
+		}
+		log.Printf("[ERROR] [LeadGet] Database query failed: %v", err)
+		response.InternalServerError(c, "Failed to retrieve lead")
 		return
 	}
 

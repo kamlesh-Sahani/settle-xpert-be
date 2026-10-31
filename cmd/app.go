@@ -77,12 +77,13 @@ func (a *App) Run() error {
 		Handler: a.Router,
 	}
 
+	serverErr := make(chan error, 1)
 	go func() {
 		fmt.Printf("🚀 DebtCare CRM Backend running on port %s\n", port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			fmt.Printf("server error: %v\n", err)
+			serverErr <- err
 		}
 	}()
 
-	return a.GracefulShutdown(srv)
+	return a.GracefulShutdown(srv, serverErr)
 }

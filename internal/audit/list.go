@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"regexp"
 	"strings"
 	"time"
 
@@ -128,7 +129,7 @@ func GetAuditHistory(c *gin.Context) {
 
 	search := strings.TrimSpace(req.GetSearch())
 	if search != "" {
-		pattern := primitive.Regex{Pattern: search, Options: "i"}
+		pattern := primitive.Regex{Pattern: regexp.QuoteMeta(search), Options: "i"}
 		baseFilter["$or"] = []bson.M{
 			{"action": pattern},
 			{"action_by": pattern},

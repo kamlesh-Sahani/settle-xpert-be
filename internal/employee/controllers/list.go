@@ -16,14 +16,16 @@ func GetAll(c *gin.Context) {
 	rolesCollection := database.GetCollection("roles")
 	roleMap := make(map[string]string)
 	if rolesCollection != nil {
-		roleCursor, _ := rolesCollection.Find(c.Request.Context(), bson.M{"is_deleted": bson.M{"$ne": true}}, options.Find().SetProjection(bson.M{"_id": 1, "name": 1}))
-		if roleCursor != nil {
+		roleCursor, err := rolesCollection.Find(c.Request.Context(), bson.M{"is_deleted": bson.M{"$ne": true}}, options.Find().SetProjection(bson.M{"_id": 1, "name": 1}))
+		if err == nil && roleCursor != nil {
+			defer roleCursor.Close(c.Request.Context())
 			var roles []bson.M
-			_ = roleCursor.All(c.Request.Context(), &roles)
-			for _, r := range roles {
-				if id, ok := r["_id"].(primitive.ObjectID); ok {
-					if name, ok := r["name"].(string); ok {
-						roleMap[id.Hex()] = name
+			if err := roleCursor.All(c.Request.Context(), &roles); err == nil {
+				for _, r := range roles {
+					if id, ok := r["_id"].(primitive.ObjectID); ok {
+						if name, ok := r["name"].(string); ok {
+							roleMap[id.Hex()] = name
+						}
 					}
 				}
 			}
@@ -33,14 +35,16 @@ func GetAll(c *gin.Context) {
 	deptsCollection := database.GetCollection("departments")
 	deptMap := make(map[string]string)
 	if deptsCollection != nil {
-		deptCursor, _ := deptsCollection.Find(c.Request.Context(), bson.M{"deleted_at": bson.M{"$exists": false}}, options.Find().SetProjection(bson.M{"_id": 1, "name": 1}))
-		if deptCursor != nil {
+		deptCursor, err := deptsCollection.Find(c.Request.Context(), bson.M{"deleted_at": bson.M{"$exists": false}}, options.Find().SetProjection(bson.M{"_id": 1, "name": 1}))
+		if err == nil && deptCursor != nil {
+			defer deptCursor.Close(c.Request.Context())
 			var depts []bson.M
-			_ = deptCursor.All(c.Request.Context(), &depts)
-			for _, d := range depts {
-				if id, ok := d["_id"].(primitive.ObjectID); ok {
-					if name, ok := d["name"].(string); ok {
-						deptMap[id.Hex()] = name
+			if err := deptCursor.All(c.Request.Context(), &depts); err == nil {
+				for _, d := range depts {
+					if id, ok := d["_id"].(primitive.ObjectID); ok {
+						if name, ok := d["name"].(string); ok {
+							deptMap[id.Hex()] = name
+						}
 					}
 				}
 			}

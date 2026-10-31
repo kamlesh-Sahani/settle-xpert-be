@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"regexp"
 	"strconv"
 
 	"lead-crm/backend/database"
@@ -21,9 +22,6 @@ type RoleOption struct {
 
 func Options(c *gin.Context) {
 	search := c.Query("search")
-	if search == "" {
-		search = c.Query("q")
-	}
 
 	page := 1
 	if p, err := strconv.Atoi(c.Query("page")); err == nil && p > 0 {
@@ -68,7 +66,7 @@ func Options(c *gin.Context) {
 	}
 
 	if search != "" {
-		filter["name"] = primitive.Regex{Pattern: search, Options: "i"}
+		filter["name"] = primitive.Regex{Pattern: regexp.QuoteMeta(search), Options: "i"}
 	}
 
 	findOptions := options.Find()

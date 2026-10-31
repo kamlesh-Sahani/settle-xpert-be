@@ -30,6 +30,13 @@ func BulkCreate(c *gin.Context) {
 	empCol := database.GetCollection("employees")
 	ctx := c.Request.Context()
 
+	var tenantID *primitive.ObjectID
+	if tVal, exists := c.Get("tenant_obj_id"); exists {
+		if tid, ok := tVal.(primitive.ObjectID); ok && !tid.IsZero() {
+			tenantID = &tid
+		}
+	}
+
 	empCache := make(map[string]string)
 	now := time.Now()
 
@@ -78,6 +85,7 @@ func BulkCreate(c *gin.Context) {
 
 		lead := models.Lead{
 			ID:                 primitive.NewObjectID(),
+			TenantID:           tenantID,
 			LeadNumber:         leadNumber,
 			FullName:           fullName,
 			Phone:              phone,

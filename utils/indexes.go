@@ -19,11 +19,12 @@ func EnsureCollectionIndexes() {
 	empCol := database.GetCollection("employees")
 	if empCol != nil {
 		cursor, err := empCol.Indexes().List(ctx)
-		if err == nil {
+		if err == nil && cursor != nil {
+			defer cursor.Close(ctx)
 			var rawIndexes []bson.M
 			if err = cursor.All(ctx, &rawIndexes); err == nil {
 				for _, idx := range rawIndexes {
-					if idx["name"] == "idx_employees_email" && idx["partialFilterExpression"] == nil {
+					if idx["name"] == "idx_employees_email" {
 						_, _ = empCol.Indexes().DropOne(ctx, "idx_employees_email")
 					}
 				}
@@ -39,7 +40,7 @@ func EnsureCollectionIndexes() {
 					SetName("idx_employees_email").
 					SetUnique(true).
 					SetPartialFilterExpression(bson.M{
-						"deleted_at": nil,
+						"deleted_at": bson.M{"$exists": false},
 					}),
 			},
 			{
@@ -48,7 +49,15 @@ func EnsureCollectionIndexes() {
 			},
 			{
 				Keys:    bson.D{{Key: "emp_id", Value: 1}},
-				Options: options.Index().SetName("idx_employees_emp_id"),
+				Options: options.Index().SetName("idx_employees_emp_id").SetUnique(true),
+			},
+			{
+				Keys:    bson.D{{Key: "department_id", Value: 1}, {Key: "deleted_at", Value: 1}},
+				Options: options.Index().SetName("idx_employees_department_id"),
+			},
+			{
+				Keys:    bson.D{{Key: "role_id", Value: 1}, {Key: "deleted_at", Value: 1}},
+				Options: options.Index().SetName("idx_employees_role_id"),
 			},
 		},
 		"sessions": {
@@ -88,8 +97,16 @@ func EnsureCollectionIndexes() {
 		},
 		"leads": {
 			{
+				Keys:    bson.D{{Key: "lead_number", Value: 1}},
+				Options: options.Index().SetName("idx_leads_lead_number").SetUnique(true),
+			},
+			{
 				Keys:    bson.D{{Key: "phone", Value: 1}},
 				Options: options.Index().SetName("idx_leads_phone"),
+			},
+			{
+				Keys:    bson.D{{Key: "email", Value: 1}},
+				Options: options.Index().SetName("idx_leads_email"),
 			},
 			{
 				Keys:    bson.D{{Key: "status", Value: 1}},
@@ -102,6 +119,16 @@ func EnsureCollectionIndexes() {
 			{
 				Keys:    bson.D{{Key: "created_at", Value: -1}},
 				Options: options.Index().SetName("idx_leads_created_at"),
+			},
+		},
+		"meta_webhook_logs": {
+			{
+				Keys:    bson.D{{Key: "created_at", Value: -1}},
+				Options: options.Index().SetName("idx_meta_webhook_logs_created_at"),
+			},
+			{
+				Keys:    bson.D{{Key: "leadgen_id", Value: 1}},
+				Options: options.Index().SetName("idx_meta_webhook_logs_leadgen_id"),
 			},
 		},
 		"customers": {
@@ -147,6 +174,14 @@ func EnsureCollectionIndexes() {
 			},
 		},
 		"audit_logs": {
+			{
+				Keys:    bson.D{{Key: "tenant_id", Value: 1}, {Key: "entity_id", Value: 1}, {Key: "action_on", Value: -1}},
+				Options: options.Index().SetName("idx_audit_logs_tenant_entity_action_on"),
+			},
+			{
+				Keys:    bson.D{{Key: "tenant_id", Value: 1}, {Key: "action_on", Value: -1}},
+				Options: options.Index().SetName("idx_audit_logs_tenant_action_on"),
+			},
 			{
 				Keys:    bson.D{{Key: "entity_id", Value: 1}, {Key: "action_on", Value: -1}},
 				Options: options.Index().SetName("idx_audit_logs_entity_action_on"),

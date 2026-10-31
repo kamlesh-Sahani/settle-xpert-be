@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kamlesh-Sahani/go-commons/table"
@@ -14,6 +15,7 @@ import (
 )
 
 var (
+	mu     sync.RWMutex
 	Client *mongo.Client
 	DBName = "debt_crm"
 )
@@ -26,10 +28,11 @@ func ConnectMongoDB(uri string) (*mongo.Client, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	resolvedDB := "debt_crm"
 	if cs, err := connstring.ParseAndValidate(uri); err == nil && cs.Database != "" {
-		DBName = cs.Database
+		resolvedDB = cs.Database
 	} else if envDB := os.Getenv("DB_NAME"); envDB != "" {
-		DBName = envDB
+		resolvedDB = envDB
 	}
 
 	clientOptions := options.Client().ApplyURI(uri)
@@ -43,14 +46,23 @@ func ConnectMongoDB(uri string) (*mongo.Client, error) {
 		return nil, err
 	}
 
-	log.Printf("Connected to MongoDB successfully (database: %s)", DBName)
+	mu.Lock()
 	Client = client
+	DBName = resolvedDB
+	mu.Unlock()
+
+	log.Printf("Connected to MongoDB successfully (database: %s)", resolvedDB)
 	return client, nil
 }
 
 func GetCollection(collectionName string) *mongo.Collection {
-	if Client == nil {
+	mu.RLock()
+	c := Client
+	d := DBName
+	mu.RUnlock()
+
+	if c == nil {
 		return nil
 	}
-	return Client.Database(DBName).Collection(strings.TrimSpace(collectionName))
+	return c.Database(d).Collection(strings.TrimSpace(collectionName))
 }

@@ -1,6 +1,9 @@
 package controllers
 
 import (
+	"errors"
+	"log"
+
 	"lead-crm/backend/database"
 	"lead-crm/backend/internal/employee/models"
 
@@ -8,6 +11,7 @@ import (
 	"github.com/kamlesh-Sahani/go-commons/response"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 func GetByID(c *gin.Context) {
@@ -31,7 +35,12 @@ func GetByID(c *gin.Context) {
 		"deleted_at": bson.M{"$exists": false},
 	}).Decode(&employee)
 	if err != nil {
-		response.NotFound(c, "Employee not found")
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			response.NotFound(c, "Employee not found")
+			return
+		}
+		log.Printf("[ERROR] [EmployeeGet] Database query failed: %v", err)
+		response.InternalServerError(c, "Failed to retrieve employee")
 		return
 	}
 

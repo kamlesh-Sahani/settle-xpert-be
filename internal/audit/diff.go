@@ -150,9 +150,10 @@ func isIgnored(key string) bool {
 // toSnakeCase converts camelCase, TitleCase, or kebab-case into snake_case.
 func toSnakeCase(s string) string {
 	var result []rune
-	for i, r := range s {
+	runes := []rune(s)
+	for i, r := range runes {
 		if i > 0 && r >= 'A' && r <= 'Z' {
-			prev := rune(s[i-1])
+			prev := runes[i-1]
 			if prev != '_' && (prev < 'A' || prev > 'Z') {
 				result = append(result, '_')
 			}

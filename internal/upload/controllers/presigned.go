@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"log"
+
 	"lead-crm/backend/internal/upload/models"
 	"lead-crm/backend/internal/upload/services"
 
@@ -18,7 +20,8 @@ func GetPresignedURL(c *gin.Context) {
 
 	res, err := services.S3.GeneratePresignedPost(c.Request.Context(), req.Filename, req.ContentType, req.Folder)
 	if err != nil {
-		response.InternalServerError(c, err.Error())
+		log.Printf("[ERROR] [UploadPresigned] Failed to generate S3 post policy: %v", err)
+		response.InternalServerError(c, "Failed to generate upload URL. Please try again later.")
 		return
 	}
 

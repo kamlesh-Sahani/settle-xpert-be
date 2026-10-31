@@ -93,6 +93,8 @@ func HandleWebhook(c *gin.Context) {
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
+	} else {
+		log.Printf("[META WEBHOOK] Warning: AppSecret is not configured, skipping HMAC verification")
 	}
 
 	var payload metaModels.MetaWebhookPayload
@@ -106,6 +108,12 @@ func HandleWebhook(c *gin.Context) {
 
 	// Process lead asynchronously
 	go func(p metaModels.MetaWebhookPayload, raw string) {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[PANIC] [MetaWebhook] recovered: %v", r)
+			}
+		}()
+
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
