@@ -16,7 +16,6 @@ const (
 // AuditLog represents the audit document schema in MongoDB.
 type AuditLog struct {
 	ID          primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
-	TenantID    *primitive.ObjectID `bson:"tenant_id,omitempty" json:"tenantId,omitempty"`
 	EmployeeID  *primitive.ObjectID `bson:"employee_id,omitempty" json:"employeeId,omitempty"`
 	EntityID    string              `bson:"entity_id,omitempty" json:"entityId,omitempty"`
 	EntityType  string              `bson:"entity_type,omitempty" json:"entityType,omitempty"`

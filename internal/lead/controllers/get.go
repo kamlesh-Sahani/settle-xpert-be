@@ -31,11 +31,6 @@ func GetByID(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	filter := bson.M{"_id": objID, "deleted_at": bson.M{"$exists": false}}
-	if tVal, exists := c.Get("tenant_obj_id"); exists {
-		if tid, ok := tVal.(primitive.ObjectID); ok {
-			filter["tenant_id"] = tid
-		}
-	}
 
 	var lead models.Lead
 	if err := col.FindOne(ctx, filter).Decode(&lead); err != nil {

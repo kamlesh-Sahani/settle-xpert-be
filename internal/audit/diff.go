@@ -26,13 +26,11 @@ type FieldDiff struct {
 var ignoredFields = map[string]bool{
 	"_id":                            true,
 	"id":                             true,
-	"tenant_id":                      true,
 	"created_at":                     true,
 	"updated_at":                     true,
 	"deleted_at":                     true,
 	"password":                       true,
 	"hash":                           true,
-	"tenantid":                       true,
 	"createdat":                      true,
 	"updatedat":                      true,
 	"deletedat":                      true,

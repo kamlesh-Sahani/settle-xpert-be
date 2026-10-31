@@ -72,11 +72,6 @@ func CreateFollowUp(c *gin.Context) {
 		"_id":        leadObjID,
 		"deleted_at": bson.M{"$exists": false},
 	}
-	if tVal, exists := c.Get("tenant_obj_id"); exists {
-		if tid, ok := tVal.(primitive.ObjectID); ok {
-			filter["tenant_id"] = tid
-		}
-	}
 
 	updateDoc := bson.M{
 		"$push": bson.M{
@@ -132,11 +127,6 @@ func UpdateFollowUpStatus(c *gin.Context) {
 		"_id":            leadObjID,
 		"follow_ups._id": followUpObjID,
 		"deleted_at":     bson.M{"$exists": false},
-	}
-	if tVal, exists := c.Get("tenant_obj_id"); exists {
-		if tid, ok := tVal.(primitive.ObjectID); ok {
-			filter["tenant_id"] = tid
-		}
 	}
 
 	userName := "Counselor"

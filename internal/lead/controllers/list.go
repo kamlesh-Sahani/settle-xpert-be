@@ -7,17 +7,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kamlesh-Sahani/go-commons/table"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func List(c *gin.Context) {
 	baseFilter := bson.M{
 		"deleted_at": bson.M{"$exists": false},
-	}
-	if tVal, exists := c.Get("tenant_obj_id"); exists {
-		if tid, ok := tVal.(primitive.ObjectID); ok {
-			baseFilter["tenant_id"] = tid
-		}
 	}
 
 	table.ExecuteTableList[models.Lead](c, table.TableListConfig[models.Lead]{

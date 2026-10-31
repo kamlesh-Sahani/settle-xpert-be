@@ -22,28 +22,13 @@ type RecordParams struct {
 	NewData    any
 }
 
-// Record extracts employee and tenant context and asynchronously stores an audit record.
+// Record extracts employee context and asynchronously stores an audit record.
 func Record(c *gin.Context, params RecordParams) {
 	if c == nil {
 		return
 	}
 
-	// 1. Extract Tenant ID (if exists)
-	var tenantObjIDPtr *primitive.ObjectID
-	if tVal, exists := c.Get("tenant_obj_id"); exists {
-		if tid, ok := tVal.(primitive.ObjectID); ok && !tid.IsZero() {
-			tenantObjIDPtr = &tid
-		}
-	}
-	if tenantObjIDPtr == nil {
-		if tStr := c.GetString("tenant_id"); tStr != "" {
-			if tid, err := primitive.ObjectIDFromHex(tStr); err == nil && !tid.IsZero() {
-				tenantObjIDPtr = &tid
-			}
-		}
-	}
-
-	// 2. Extract Employee ID
+	// 1. Extract Employee ID
 	var empObjIDPtr *primitive.ObjectID
 	if eVal, exists := c.Get("emp_obj_id"); exists {
 		if eid, ok := eVal.(primitive.ObjectID); ok && !eid.IsZero() {
@@ -79,7 +64,6 @@ func Record(c *gin.Context, params RecordParams) {
 
 	// 6. Construct strongly-typed audit log
 	entry := auditmodels.AuditLog{
-		TenantID:    tenantObjIDPtr,
 		EmployeeID:  empObjIDPtr,
 		EntityID:    params.EntityID,
 		EntityType:  params.EntityType,

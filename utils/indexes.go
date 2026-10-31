@@ -175,14 +175,6 @@ func EnsureCollectionIndexes() {
 		},
 		"audit_logs": {
 			{
-				Keys:    bson.D{{Key: "tenant_id", Value: 1}, {Key: "entity_id", Value: 1}, {Key: "action_on", Value: -1}},
-				Options: options.Index().SetName("idx_audit_logs_tenant_entity_action_on"),
-			},
-			{
-				Keys:    bson.D{{Key: "tenant_id", Value: 1}, {Key: "action_on", Value: -1}},
-				Options: options.Index().SetName("idx_audit_logs_tenant_action_on"),
-			},
-			{
 				Keys:    bson.D{{Key: "entity_id", Value: 1}, {Key: "action_on", Value: -1}},
 				Options: options.Index().SetName("idx_audit_logs_entity_action_on"),
 			},

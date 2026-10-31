@@ -104,13 +104,6 @@ func Create(c *gin.Context) {
 		}
 	}
 
-	var tenantObjIDPtr *primitive.ObjectID
-	if tVal, exists := c.Get("tenant_obj_id"); exists {
-		if tid, ok := tVal.(primitive.ObjectID); ok {
-			tenantObjIDPtr = &tid
-		}
-	}
-
 	rawPhone := strings.TrimSpace(req.Phone)
 	cleanedPhone := digitCleaner.ReplaceAllString(rawPhone, "")
 	last10 := cleanedPhone
@@ -502,7 +495,6 @@ func Create(c *gin.Context) {
 
 	newLead := models.Lead{
 		ID:                  primitive.NewObjectID(),
-		TenantID:            tenantObjIDPtr,
 		LeadNumber:          leadNumber,
 		FullName:            strings.TrimSpace(req.FullName),
 		Phone:               strings.TrimSpace(req.Phone),

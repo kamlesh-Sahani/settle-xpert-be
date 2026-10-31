@@ -69,11 +69,6 @@ func Update(c *gin.Context) {
 		"_id":        objID,
 		"deleted_at": bson.M{"$exists": false},
 	}
-	if tVal, exists := c.Get("tenant_obj_id"); exists {
-		if tid, ok := tVal.(primitive.ObjectID); ok {
-			filter["tenant_id"] = tid
-		}
-	}
 
 	var existing models.Lead
 	if err := col.FindOne(ctx, filter).Decode(&existing); err != nil {
@@ -94,9 +89,6 @@ func Update(c *gin.Context) {
 					"_id":        bson.M{"$ne": objID},
 					"phone":      bson.M{"$regex": last10 + "$"},
 					"deleted_at": bson.M{"$exists": false},
-				}
-				if tid, ok := filter["tenant_id"]; ok {
-					dupFilter["tenant_id"] = tid
 				}
 				if count, _ := col.CountDocuments(ctx, dupFilter); count > 0 {
 					response.Conflict(c, "Another lead with this phone number already exists")

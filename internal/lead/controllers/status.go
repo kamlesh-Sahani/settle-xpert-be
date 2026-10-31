@@ -58,11 +58,6 @@ func UpdateStatus(c *gin.Context) {
 		"_id":        objID,
 		"deleted_at": bson.M{"$exists": false},
 	}
-	if tVal, exists := c.Get("tenant_obj_id"); exists {
-		if tid, ok := tVal.(primitive.ObjectID); ok {
-			filter["tenant_id"] = tid
-		}
-	}
 
 	userName := "User"
 	if emp, ok := utils.GetAuthEmployee(c); ok && emp.Name != "" {

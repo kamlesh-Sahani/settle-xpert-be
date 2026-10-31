@@ -118,11 +118,6 @@ func GetAuditHistory(c *gin.Context) {
 	}
 
 	baseFilter := bson.M{}
-	if tVal, exists := c.Get("tenant_obj_id"); exists {
-		if tid, ok := tVal.(primitive.ObjectID); ok && !tid.IsZero() {
-			baseFilter["tenant_id"] = tid
-		}
-	}
 	if targetID != "" {
 		baseFilter["entity_id"] = targetID
 	}
@@ -371,11 +366,6 @@ func GetAuditHistoryDetails(c *gin.Context) {
 	defer cancel()
 
 	findFilter := bson.M{"_id": objID}
-	if tVal, exists := c.Get("tenant_obj_id"); exists {
-		if tid, ok := tVal.(primitive.ObjectID); ok && !tid.IsZero() {
-			findFilter["tenant_id"] = tid
-		}
-	}
 
 	var doc auditmodels.AuditLog
 	err = col.FindOne(ctx, findFilter).Decode(&doc)

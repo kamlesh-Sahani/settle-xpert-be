@@ -132,7 +132,6 @@ type ActivityItem struct {
 
 type Lead struct {
 	ID                  primitive.ObjectID       `bson:"_id,omitempty" json:"id"`
-	TenantID            *primitive.ObjectID      `bson:"tenant_id,omitempty" json:"tenantId,omitempty"`
 	LeadNumber          string                   `bson:"lead_number" json:"leadNumber"`
 	FullName            string                   `bson:"full_name" json:"fullName"`
 	Email               string                   `bson:"email,omitempty" json:"email,omitempty"`
