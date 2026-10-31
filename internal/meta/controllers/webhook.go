@@ -185,7 +185,7 @@ func processLead(ctx context.Context, leadgenID, formID, pageID, adID, raw strin
 
 	// 3. Map field data
 	lead := leadModels.Lead{
-		Source: leadModels.SourceMetaAds,
+		Source: leadModels.SourceFacebookAds,
 		Status: leadModels.LeadStatusNew,
 		MetaDetails: &leadModels.MetaDetails{
 			LeadgenID: leadgenID,
