@@ -18,6 +18,7 @@ func RegisterRoutes(router *gin.Engine) {
 		leadGroup.POST("/validate-import", middleware.Protect("lead:create"), controllers.ValidateImport)
 		leadGroup.GET("/import-fields", middleware.Protect("lead:read"), controllers.GetImportFields)
 		leadGroup.POST("/update", middleware.Protect("lead:update"), controllers.Update)
+		leadGroup.POST("/convert", middleware.Protect("lead:convert", "lead:update"), controllers.ConvertLeadToCustomer)
 		leadGroup.POST("/follow-up/create", middleware.Protect("lead:update"), controllers.CreateFollowUp)
 		leadGroup.POST("/follow-up/status", middleware.Protect("lead:update"), controllers.UpdateFollowUpStatus)
 	}

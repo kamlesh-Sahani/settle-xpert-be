@@ -168,6 +168,7 @@ type Lead struct {
 	ClosingNotes        string                   `bson:"closing_notes,omitempty" json:"closingNotes,omitempty"`
 	ConvertedAt         *time.Time               `bson:"converted_at,omitempty" json:"convertedAt,omitempty"`
 	CustomerID          *primitive.ObjectID      `bson:"customer_id,omitempty" json:"customerId,omitempty"`
+	CustomerNumber      string                   `bson:"customer_number,omitempty" json:"customerNumber,omitempty"`
 	MetaDetails         *MetaDetails             `bson:"meta_details,omitempty" json:"metaDetails,omitempty"`
 	RawFields           map[string]string        `bson:"raw_fields,omitempty" json:"rawFields,omitempty"`
 	CreatedAt           time.Time                `bson:"created_at" json:"createdAt"`

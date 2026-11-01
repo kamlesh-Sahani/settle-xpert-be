@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"lead-crm/backend/internal/customer"
 	"lead-crm/backend/internal/department"
 	"lead-crm/backend/internal/employee"
 	"lead-crm/backend/internal/lead"
@@ -22,6 +23,7 @@ func SetupRoutes(router *gin.Engine) {
 	employee.RegisterRoutes(router)
 	department.RegisterRoutes(router)
 	lead.RegisterRoutes(router)
+	customer.RegisterRoutes(router)
 	role.RegisterRoutes(router)
 	meta.RegisterRoutes(router)
 	upload.RegisterRoutes(router)
