@@ -16,10 +16,11 @@ import (
 )
 
 type CreateRoleRequest struct {
-	Name        string   `json:"name" binding:"required"`
-	Description string   `json:"description"`
-	Status      any      `json:"status"`
-	Permissions []string `json:"permissions"`
+	Name         string               `json:"name" binding:"required"`
+	Description  string               `json:"description"`
+	Status       any                  `json:"status"`
+	Permissions  []string             `json:"permissions"`
+	WorkingHours *models.WorkingHours `json:"workingHours"`
 }
 
 func Create(c *gin.Context) {
@@ -80,13 +81,14 @@ func Create(c *gin.Context) {
 	}
 
 	role := models.Role{
-		Name:        req.Name,
-		Description: req.Description,
-		Status:      status,
-		IsDeleted:   false,
-		Permissions: permissions,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		Name:         req.Name,
+		Description:  req.Description,
+		Status:       status,
+		IsDeleted:    false,
+		Permissions:  permissions,
+		WorkingHours: req.WorkingHours,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
 	}
 
 	result, err := collection.InsertOne(c.Request.Context(), role)

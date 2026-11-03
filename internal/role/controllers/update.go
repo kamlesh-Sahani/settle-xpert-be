@@ -16,12 +16,13 @@ import (
 )
 
 type UpdateRoleRequest struct {
-	ID          string    `json:"id" binding:"required"`
-	Module      *string   `json:"module"`
-	Name        *string   `json:"name"`
-	Description *string   `json:"description"`
-	Status      any       `json:"status"`
-	Permissions *[]string `json:"permissions"`
+	ID           string               `json:"id" binding:"required"`
+	Module       *string              `json:"module"`
+	Name         *string              `json:"name"`
+	Description  *string              `json:"description"`
+	Status       any                  `json:"status"`
+	Permissions  *[]string            `json:"permissions"`
+	WorkingHours *models.WorkingHours `json:"workingHours"`
 }
 
 func Update(c *gin.Context) {
@@ -73,6 +74,9 @@ func Update(c *gin.Context) {
 			}
 		}
 		updateFields["status"] = statusStr
+	}
+	if req.WorkingHours != nil {
+		updateFields["working_hours"] = req.WorkingHours
 	}
 	if req.Permissions != nil {
 		if req.Module != nil && strings.TrimSpace(*req.Module) != "" {

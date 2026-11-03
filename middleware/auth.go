@@ -6,6 +6,7 @@ import (
 
 	"lead-crm/backend/database"
 	employeemodels "lead-crm/backend/internal/employee/models"
+	rolemodels "lead-crm/backend/internal/role/models"
 	"lead-crm/backend/utils"
 
 	"github.com/gin-gonic/gin"
@@ -22,7 +23,8 @@ type authResult struct {
 	EmployeeID primitive.ObjectID      `bson:"employee_id"`
 	Employee   employeemodels.Employee `bson:"employee"`
 	Role       *struct {
-		Permissions []string `bson:"permissions"`
+		Permissions  []string                 `bson:"permissions"`
+		WorkingHours *rolemodels.WorkingHours `bson:"working_hours"`
 	} `bson:"role"`
 }
 
@@ -115,6 +117,12 @@ func Protect(requiredPermissions ...string) gin.HandlerFunc {
 		var authState authResult
 		if err := cursor.Decode(&authState); err != nil {
 			response.Unauthorized(c, "Failed to parse authentication state")
+			c.Abort()
+			return
+		}
+
+		if authState.Role != nil && authState.Role.WorkingHours != nil && !authState.Role.WorkingHours.IsAllowedNow() {
+			response.Forbidden(c, "Access is restricted outside authorized working hours")
 			c.Abort()
 			return
 		}

@@ -9,6 +9,7 @@ import (
 	"lead-crm/backend/database"
 	authmodels "lead-crm/backend/internal/auth/models"
 	"lead-crm/backend/internal/employee/models"
+	rolemodels "lead-crm/backend/internal/role/models"
 	"lead-crm/backend/utils"
 
 	"github.com/gin-gonic/gin"
@@ -64,6 +65,20 @@ func Refresh(c *gin.Context) {
 	if err != nil {
 		response.Unauthorized(c, "Employee account not active")
 		return
+	}
+
+	if employee.RoleID != nil {
+		var role rolemodels.Role
+		roleCol := database.GetCollection("roles")
+		err := roleCol.FindOne(c.Request.Context(), bson.M{
+			"_id":        employee.RoleID,
+			"is_deleted": bson.M{"$ne": true},
+			"status":     rolemodels.RoleStatusActive,
+		}).Decode(&role)
+		if err == nil && role.WorkingHours != nil && !role.WorkingHours.IsAllowedNow() {
+			response.Forbidden(c, "Session refresh is restricted outside authorized working hours")
+			return
+		}
 	}
 
 	newAccessToken, err := utils.GenerateAccessToken(employee.ID.Hex(), employee.Email, employee.Name, session.ID.Hex())

@@ -49,11 +49,12 @@ func GetByID(c *gin.Context) {
 	// If no module or detail requested, return basic role information
 	if module == "" || strings.EqualFold(module, "detail") {
 		response.Success(c, "Role details retrieved successfully", gin.H{
-			"id":          role.ID.Hex(),
-			"name":        role.Name,
-			"description": role.Description,
-			"status":      role.Status,
-			"isDeleted":   role.IsDeleted,
+			"id":           role.ID.Hex(),
+			"name":         role.Name,
+			"description":  role.Description,
+			"status":       role.Status,
+			"isDeleted":    role.IsDeleted,
+			"workingHours": role.WorkingHours,
 		})
 		return
 	}

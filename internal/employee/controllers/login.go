@@ -10,6 +10,7 @@ import (
 	"lead-crm/backend/database"
 	authmodels "lead-crm/backend/internal/auth/models"
 	"lead-crm/backend/internal/employee/models"
+	rolemodels "lead-crm/backend/internal/role/models"
 	"lead-crm/backend/utils"
 
 	"github.com/gin-gonic/gin"
@@ -52,6 +53,20 @@ func Login(c *gin.Context) {
 	if err := utils.VerifyHash(req.Password, employee.Password); err != nil {
 		response.Unauthorized(c, "Invalid email or password")
 		return
+	}
+
+	if employee.RoleID != nil {
+		var role rolemodels.Role
+		roleCol := database.GetCollection("roles")
+		err := roleCol.FindOne(c.Request.Context(), bson.M{
+			"_id":        employee.RoleID,
+			"is_deleted": bson.M{"$ne": true},
+			"status":     rolemodels.RoleStatusActive,
+		}).Decode(&role)
+		if err == nil && role.WorkingHours != nil && !role.WorkingHours.IsAllowedNow() {
+			response.Unauthorized(c, "Login is not permitted outside authorized working hours")
+			return
+		}
 	}
 
 	sessionCol := database.GetCollection("sessions")
