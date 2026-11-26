@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"log"
 	"strings"
 
 	"lead-crm/backend/database"
@@ -14,26 +15,26 @@ import (
 )
 
 type ValidateImportRequest struct {
-	DefaultSource models.LeadSource `json:"defaultSource"`
-	Leads         []BulkLeadItem    `json:"leads" binding:"required,min=1"`
+	Leads []BulkLeadItem `json:"leads" binding:"required,min=1,max=2000"`
 }
 
 type ValidatedLeadItem struct {
-	Row                int               `json:"row"`
-	FullName           string            `json:"fullName"`
-	Phone              string            `json:"phone"`
-	Email              string            `json:"email"`
-	ServiceRequired    string            `json:"serviceRequired"`
-	Source             models.LeadSource `json:"source"`
-	City               string            `json:"city"`
-	State              string            `json:"state"`
-	TotalDebtAmount    float64           `json:"totalDebtAmount"`
-	MonthlyIncome      float64           `json:"monthlyIncome"`
-	CurrentEMIAmount   float64           `json:"currentEmiAmount"`
-	QualificationNotes string            `json:"qualificationNotes"`
-	IsValid            bool              `json:"isValid"`
-	Status             string            `json:"status"` // "VALID", "INVALID", "DUPLICATE_FILE", "DUPLICATE_CRM"
-	ErrorReason        string            `json:"errorReason"`
+	Row                    int                     `json:"row"`
+	FullName               string                  `json:"fullName"`
+	Phone                  string                  `json:"phone"`
+	Email                  string                  `json:"email"`
+	City                   string                  `json:"city"`
+	State                  string                  `json:"state"`
+	ServiceType            string                  `json:"serviceType"`
+	TotalOutstandingAmount float64                 `json:"totalOutstandingAmount"`
+	CreditCardDue          float64                 `json:"creditCardDue"`
+	PersonalDue            float64                 `json:"personalDue"`
+	MonthlyIncome          float64                 `json:"monthlyIncome"`
+	MonthlyEMI             float64                 `json:"monthlyEmi"`
+	Harassment             models.HarassmentStatus `json:"harassment,omitempty"`
+	IsValid                bool                    `json:"isValid"`
+	Status                 string                  `json:"status"` // VALID, INVALID, DUPLICATE_FILE, DUPLICATE_CRM
+	ErrorReason            string                  `json:"errorReason"`
 }
 
 type ValidateImportResponse struct {
@@ -52,92 +53,77 @@ func ValidateImport(c *gin.Context) {
 	}
 
 	col := database.GetCollection("leads")
+	if col == nil {
+		response.InternalServerError(c, "Database service unavailable")
+		return
+	}
 	ctx := c.Request.Context()
 
 	cleanPhones := make([]string, 0, len(req.Leads))
 	for _, item := range req.Leads {
-		raw := strings.TrimSuffix(strings.TrimSpace(item.Phone), ".0")
-		p := bulkDigitCleaner.ReplaceAllString(raw, "")
-		if len(p) > 10 {
-			p = p[len(p)-10:]
-		}
-		if len(p) == 10 {
-			cleanPhones = append(cleanPhones, p)
+		if phone, ok := normalizeLeadPhone(item.Phone); ok {
+			cleanPhones = append(cleanPhones, phone)
 		}
 	}
 
 	existingPhones := make(map[string]bool)
 	if len(cleanPhones) > 0 {
 		dupFilter := bson.M{
-			"deleted_at": bson.M{"$exists": false},
-			"phone":      bson.M{"$in": cleanPhones},
+			"deleted_at":     bson.M{"$exists": false},
+			"personal.phone": bson.M{"$in": cleanPhones},
 		}
-		cursor, err := col.Find(ctx, dupFilter, options.Find().SetProjection(bson.M{"phone": 1}))
-		if err == nil {
-			defer cursor.Close(ctx)
-			for cursor.Next(ctx) {
-				var doc struct {
+		cursor, err := col.Find(ctx, dupFilter, options.Find().SetProjection(bson.M{"personal.phone": 1}))
+		if err != nil {
+			log.Printf("[ERROR] [LeadValidateImport] Existing phone lookup failed: %v", err)
+			response.InternalServerError(c, "Failed to validate existing leads")
+			return
+		}
+		defer cursor.Close(ctx)
+		for cursor.Next(ctx) {
+			var doc struct {
+				Personal struct {
 					Phone string `bson:"phone"`
-				}
-				if err := cursor.Decode(&doc); err == nil && doc.Phone != "" {
-					existingPhones[doc.Phone] = true
-				}
+				} `bson:"personal"`
+			}
+			if err := cursor.Decode(&doc); err == nil && doc.Personal.Phone != "" {
+				existingPhones[doc.Personal.Phone] = true
 			}
 		}
 	}
 
-	seenInBatch := make(map[string]bool)
+	seenInBatch := make(map[string]bool, len(req.Leads))
 	validatedList := make([]ValidatedLeadItem, 0, len(req.Leads))
-	validCount := 0
-	invalidCount := 0
-	duplicateCount := 0
+	validCount, invalidCount, duplicateCount := 0, 0, 0
 
 	for i, item := range req.Leads {
 		rowNum := i + 1
-		fullName := strings.TrimSpace(item.FullName)
-		rawPhone := strings.TrimSuffix(strings.TrimSpace(item.Phone), ".0")
-		cleanedPhone := bulkDigitCleaner.ReplaceAllString(rawPhone, "")
-		if len(cleanedPhone) > 10 {
-			cleanedPhone = cleanedPhone[len(cleanedPhone)-10:]
-		}
-
-		source := models.SourceExcelImport
-		if item.Source != "" {
-			source = item.Source
-		} else if req.DefaultSource != "" {
-			source = req.DefaultSource
+		fullName, cleanedPhone, _, validationErr := validateBulkLeadRow(item)
+		if fullName == "" {
+			fullName = strings.TrimSpace(item.FullName)
 		}
 
 		vLead := ValidatedLeadItem{
-			Row:                rowNum,
-			FullName:           fullName,
-			Phone:              cleanedPhone,
-			Email:              strings.TrimSpace(item.Email),
-			ServiceRequired:    item.ServiceRequired,
-			Source:             source,
-			City:               strings.TrimSpace(item.City),
-			State:              strings.TrimSpace(item.State),
-			TotalDebtAmount:    item.TotalDebtAmount,
-			MonthlyIncome:      item.MonthlyIncome,
-			CurrentEMIAmount:   item.CurrentEMIAmount,
-			QualificationNotes: strings.TrimSpace(item.QualificationNotes),
-			IsValid:            false,
+			Row:                    rowNum,
+			FullName:               fullName,
+			Phone:                  cleanedPhone,
+			Email:                  strings.ToLower(strings.TrimSpace(item.Email)),
+			City:                   strings.TrimSpace(item.City),
+			State:                  strings.TrimSpace(item.State),
+			ServiceType:            strings.TrimSpace(item.ServiceType),
+			TotalOutstandingAmount: item.TotalOutstandingAmount,
+			CreditCardDue:          item.CreditCardDue,
+			PersonalDue:            item.PersonalDue,
+			MonthlyIncome:          item.MonthlyIncome,
+			MonthlyEMI:             item.MonthlyEMI,
+			Harassment:             item.Harassment,
 		}
 		if vLead.Phone == "" {
-			vLead.Phone = rawPhone
+			vLead.Phone = strings.TrimSpace(item.Phone)
 		}
 
-		if fullName == "" {
+		if validationErr != "" {
 			vLead.Status = "INVALID"
-			vLead.ErrorReason = "Borrower Full Name is missing"
-			invalidCount++
-			validatedList = append(validatedList, vLead)
-			continue
-		}
-
-		if len(cleanedPhone) != 10 {
-			vLead.Status = "INVALID"
-			vLead.ErrorReason = "Invalid phone number (must be 10 digits)"
+			vLead.ErrorReason = validationErr
 			invalidCount++
 			validatedList = append(validatedList, vLead)
 			continue

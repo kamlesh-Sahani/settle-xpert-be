@@ -32,6 +32,19 @@ func EnsureCollectionIndexes() {
 		}
 	}
 
+	leadCol := database.GetCollection("leads")
+	if leadCol != nil {
+		for _, oldIdx := range []string{
+			"idx_leads_phone",
+			"idx_leads_email",
+			"idx_leads_status",
+			"idx_leads_assigned_to",
+			"idx_leads_created_at",
+		} {
+			_, _ = leadCol.Indexes().DropOne(ctx, oldIdx)
+		}
+	}
+
 	indexMap := map[string][]mongo.IndexModel{
 		"employees": {
 			{
@@ -101,24 +114,69 @@ func EnsureCollectionIndexes() {
 				Options: options.Index().SetName("idx_leads_lead_number").SetUnique(true),
 			},
 			{
-				Keys:    bson.D{{Key: "phone", Value: 1}},
-				Options: options.Index().SetName("idx_leads_phone"),
+				Keys: bson.D{{Key: "personal.phone", Value: 1}},
+				Options: options.Index().
+					SetName("idx_leads_personal_phone").
+					SetUnique(true).
+					SetPartialFilterExpression(bson.M{
+						"deleted_at": bson.M{"$exists": false},
+					}),
 			},
 			{
-				Keys:    bson.D{{Key: "email", Value: 1}},
-				Options: options.Index().SetName("idx_leads_email"),
+				Keys: bson.D{{Key: "personal.email", Value: 1}},
+				Options: options.Index().
+					SetName("idx_leads_personal_email").
+					SetPartialFilterExpression(bson.M{
+						"deleted_at": bson.M{"$exists": false},
+					}),
 			},
 			{
-				Keys:    bson.D{{Key: "status", Value: 1}},
-				Options: options.Index().SetName("idx_leads_status"),
+				Keys: bson.D{{Key: "created_at", Value: -1}, {Key: "_id", Value: -1}},
+				Options: options.Index().
+					SetName("idx_leads_active_created").
+					SetPartialFilterExpression(bson.M{
+						"deleted_at": bson.M{"$exists": false},
+					}),
 			},
 			{
-				Keys:    bson.D{{Key: "assigned_to", Value: 1}},
-				Options: options.Index().SetName("idx_leads_assigned_to"),
+				Keys: bson.D{{Key: "status", Value: 1}, {Key: "created_at", Value: -1}, {Key: "_id", Value: -1}},
+				Options: options.Index().
+					SetName("idx_leads_active_status_created").
+					SetPartialFilterExpression(bson.M{
+						"deleted_at": bson.M{"$exists": false},
+					}),
 			},
 			{
-				Keys:    bson.D{{Key: "created_at", Value: -1}},
-				Options: options.Index().SetName("idx_leads_created_at"),
+				Keys: bson.D{{Key: "assigned_to", Value: 1}, {Key: "created_at", Value: -1}, {Key: "_id", Value: -1}},
+				Options: options.Index().
+					SetName("idx_leads_active_assigned_created").
+					SetPartialFilterExpression(bson.M{
+						"deleted_at": bson.M{"$exists": false},
+					}),
+			},
+			{
+				Keys: bson.D{{Key: "personal.full_name", Value: 1}, {Key: "_id", Value: 1}},
+				Options: options.Index().
+					SetName("idx_leads_active_full_name").
+					SetPartialFilterExpression(bson.M{
+						"deleted_at": bson.M{"$exists": false},
+					}),
+			},
+			{
+				Keys: bson.D{{Key: "financial.total_outstanding_amount", Value: -1}, {Key: "_id", Value: -1}},
+				Options: options.Index().
+					SetName("idx_leads_active_outstanding").
+					SetPartialFilterExpression(bson.M{
+						"deleted_at": bson.M{"$exists": false},
+					}),
+			},
+			{
+				Keys: bson.D{{Key: "financial.monthly_income", Value: -1}, {Key: "_id", Value: -1}},
+				Options: options.Index().
+					SetName("idx_leads_active_monthly_income").
+					SetPartialFilterExpression(bson.M{
+						"deleted_at": bson.M{"$exists": false},
+					}),
 			},
 		},
 		"meta_webhook_logs": {

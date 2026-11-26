@@ -2,534 +2,232 @@ package controllers
 
 import (
 	"fmt"
-	"regexp"
+	"log"
 	"strings"
 	"time"
 
 	"lead-crm/backend/database"
+	employeemodels "lead-crm/backend/internal/employee/models"
 	"lead-crm/backend/internal/lead/models"
-	"lead-crm/backend/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kamlesh-Sahani/go-commons/response"
 	commonsutils "github.com/kamlesh-Sahani/go-commons/utils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
-var digitCleaner = regexp.MustCompile(`\D`)
-
-func parseFlexibleTime(val string) *time.Time {
-	s := strings.TrimSpace(val)
-	if s == "" {
-		return nil
-	}
-	formats := []string{
-		time.RFC3339,
-		"2006-01-02T15:04:05.000Z",
-		"2006-01-02T15:04:05Z07:00",
-		"2006-01-02T15:04:05",
-		"2006-01-02 15:04:05",
-		"2006-01-02",
-		"02/01/2006 03:04 PM",
-		"02/01/2006 15:04",
-		"02/01/2006",
-	}
-	for _, layout := range formats {
-		if t, err := time.Parse(layout, s); err == nil {
-			return &t
-		}
-	}
-	return nil
-}
-
-type CreateLeadDebtItem struct {
-	Lender            string  `json:"lender"`
-	LoanType          string  `json:"loanType"`
-	OutstandingAmount float64 `json:"outstandingAmount"`
-	MonthlyEMI        float64 `json:"monthlyEmi"`
-}
-
-type CreateConversationPayload struct {
-	CallStartTime   string `json:"callStartTime"`
-	CallEndTime     string `json:"callEndTime"`
-	CallDuration    string `json:"callDuration"`
-	Outcome         string `json:"outcome"`
-	DiscussionNotes string `json:"discussionNotes"`
-	RawChat         string `json:"rawChat"`
+type CallScheduleInput struct {
+	Date       time.Time                 `json:"date" binding:"required"`
+	Status     models.CallScheduleStatus `json:"status" binding:"omitempty,oneof=PENDING COMPLETED"`
+	CallStatus models.CallStatus         `json:"callStatus" binding:"omitempty,oneof=CONNECTED BUSY RINGING SWITCHED_OFF DISCONNECTED_BY_CLIENT"`
+	Remark     string                    `json:"remark" binding:"omitempty,max=1000"`
 }
 
 type CreateLeadRequest struct {
-	FullName           string                     `json:"fullName" binding:"required"`
-	Phone              string                     `json:"phone" binding:"required"`
-	AlternatePhone     string                     `json:"alternatePhone"`
-	Email              string                     `json:"email"`
-	DOB                string                     `json:"dob"`
-	PANCard            string                     `json:"panCard"`
-	Address            *models.Address            `json:"address"`
-	City               string                     `json:"city"`
-	State              string                     `json:"state"`
-	ServiceRequired    string                     `json:"serviceRequired" binding:"required"`
-	Source             models.LeadSource          `json:"source" binding:"required"`
-	Priority           models.LeadPriority        `json:"priority" binding:"omitempty,oneof=LOW NORMAL HIGH"`
-	Status             models.LeadStatus          `json:"status" binding:"omitempty,oneof=NEW IN_PROGRESS CONVERTED LOST"`
-	InitialEnquiry     string                     `json:"initialEnquiry"`
-	QualificationNotes string                     `json:"qualificationNotes"`
-	TotalDebtAmount    float64                    `json:"totalDebtAmount"`
-	OutstandingAmount  float64                    `json:"outstandingAmount"`
-	MonthlyIncome      float64                    `json:"monthlyIncome"`
-	CurrentEMIAmount   float64                    `json:"currentEmiAmount"`
-	Debts              []CreateLeadDebtItem       `json:"debts"`
-	AssignedTo         string                     `json:"assignedTo"`
-	Conversation       *CreateConversationPayload `json:"conversation"`
+	Personal        models.PersonalInfo   `json:"personal" binding:"required"`
+	Financial       *models.FinancialInfo `json:"financial" binding:"required"`
+	Agreement     *models.AgreementInfo `json:"agreement"`
+	ServiceType   string                `json:"serviceType" binding:"omitempty,max=120"`
+	Status        models.LeadStatus     `json:"status" binding:"omitempty,oneof=NEW CALL_SCHEDULED INTERESTED NOT_INTERESTED"`
+	AssignedTo      string                `json:"assignedTo" binding:"omitempty,max=24"`
+	CallSchedules   []CallScheduleInput   `json:"callSchedules" binding:"omitempty,max=20,dive"`
 }
 
 func Create(c *gin.Context) {
+	// 1. Validate JSON payload using struct binding rules
 	var req CreateLeadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, commonsutils.FormatValidationError(err))
 		return
 	}
 
-	col := database.GetCollection("leads")
+	// 2. Trim & re-check required text fields (blocks whitespace-only strings)
+	req.Personal.FullName = strings.TrimSpace(req.Personal.FullName)
+	if len(req.Personal.FullName) < 2 {
+		response.BadRequest(c, "Full name must be at least 2 characters")
+		return
+	}
+	req.Personal.Email = strings.ToLower(strings.TrimSpace(req.Personal.Email))
+	req.Personal.DOB = strings.TrimSpace(req.Personal.DOB)
+	req.Personal.MaritalStatus = strings.TrimSpace(req.Personal.MaritalStatus)
+	req.Personal.FullAddress = strings.TrimSpace(req.Personal.FullAddress)
+	req.Personal.City = strings.TrimSpace(req.Personal.City)
+	req.Personal.State = strings.TrimSpace(req.Personal.State)
+	req.Personal.EmploymentType = strings.TrimSpace(req.Personal.EmploymentType)
+	req.ServiceType = strings.TrimSpace(req.ServiceType)
+
+	if req.Agreement != nil {
+		req.Agreement.Duration = strings.TrimSpace(req.Agreement.Duration)
+	}
+	if req.Financial != nil {
+		for i := range req.Financial.Lenders {
+			req.Financial.Lenders[i].LenderName = strings.TrimSpace(req.Financial.Lenders[i].LenderName)
+			req.Financial.Lenders[i].LoanType = strings.TrimSpace(req.Financial.Lenders[i].LoanType)
+			if req.Financial.Lenders[i].LenderName == "" || req.Financial.Lenders[i].LoanType == "" {
+				response.BadRequest(c, "Lender name and loan type cannot be empty")
+				return
+			}
+		}
+		if req.Financial.TotalOutstandingAmount == 0 && len(req.Financial.Lenders) > 0 {
+			for _, l := range req.Financial.Lenders {
+				req.Financial.TotalOutstandingAmount += l.OutstandingAmount
+			}
+		}
+		if req.Financial.TotalOutstandingAmount <= 0 {
+			response.BadRequest(c, "Total outstanding amount is required and must be greater than 0")
+			return
+		}
+		if req.Financial.MonthlyIncome <= 0 {
+			response.BadRequest(c, "Monthly income is required and must be greater than 0")
+			return
+		}
+	}
+
+	// 3. Clean & validate phone number (10 digits)
+	phone, ok := normalizeLeadPhone(req.Personal.Phone)
+	if !ok {
+		response.BadRequest(c, "Invalid phone number: must be 10 digits")
+		return
+	}
+	req.Personal.Phone = phone
+
+	// 4. Clean & validate PAN (optional)
+	pan, ok := normalizeLeadPAN(req.Personal.PANNumber)
+	if !ok {
+		response.BadRequest(c, "Invalid PAN number format")
+		return
+	}
+	req.Personal.PANNumber = pan
+
+	leadCol := database.GetCollection("leads")
+	if leadCol == nil {
+		response.InternalServerError(c, "Database service unavailable")
+		return
+	}
 	ctx := c.Request.Context()
 
-	// Resolve creator employee info
-	creatorName := "System"
-	var creatorID *primitive.ObjectID
-	if empCtx, ok := utils.GetAuthEmployee(c); ok && empCtx != nil {
-		creatorName = empCtx.Name
-		if oid, err := primitive.ObjectIDFromHex(empCtx.EmployeeID); err == nil {
-			creatorID = &oid
-		}
-	}
-
-	rawPhone := strings.TrimSpace(req.Phone)
-	cleanedPhone := digitCleaner.ReplaceAllString(rawPhone, "")
-	last10 := cleanedPhone
-	if len(cleanedPhone) > 10 {
-		last10 = cleanedPhone[len(cleanedPhone)-10:]
-	}
-
-	now := time.Now()
-
-	// Prepare Debts & Financial Assessment
-	totalDebt := req.TotalDebtAmount
-	if totalDebt == 0 && req.OutstandingAmount > 0 {
-		totalDebt = req.OutstandingAmount
-	}
-
-	debtItems := make([]models.DebtItem, 0, len(req.Debts))
-	var debtSum float64
-	for _, d := range req.Debts {
-		lender := strings.TrimSpace(d.Lender)
-		if lender == "" {
-			continue
-		}
-		item := models.DebtItem{
-			ID:                primitive.NewObjectID(),
-			Lender:            lender,
-			LoanType:          strings.TrimSpace(d.LoanType),
-			OutstandingAmount: d.OutstandingAmount,
-			MonthlyEMI:        d.MonthlyEMI,
-			Status:            "Active",
-		}
-		debtItems = append(debtItems, item)
-		debtSum += d.OutstandingAmount
-	}
-	if len(debtItems) > 0 {
-		totalDebt = debtSum
-	}
-
-	finAssessment := &models.FinancialAssessment{
-		MonthlyIncome:     req.MonthlyIncome,
-		TotalMonthlyEMI:   req.CurrentEMIAmount,
-		TotalDebtAmount:   totalDebt,
-		OutstandingAmount: totalDebt,
-		Debts:             debtItems,
-	}
-
-	// Prepare unified initial conversation record
-	initialConversations := make([]models.ConversationItem, 0)
-	if req.Conversation != nil {
-		callStart := parseFlexibleTime(req.Conversation.CallStartTime)
-		callEnd := parseFlexibleTime(req.Conversation.CallEndTime)
-		duration := strings.TrimSpace(req.Conversation.CallDuration)
-		outcome := strings.TrimSpace(req.Conversation.Outcome)
-		discussionNotes := strings.TrimSpace(req.Conversation.DiscussionNotes)
-		whatsappChat := strings.TrimSpace(req.Conversation.RawChat)
-
-		if callStart != nil || callEnd != nil || duration != "" || discussionNotes != "" || whatsappChat != "" {
-			if outcome == "" {
-				outcome = "Connected"
-			}
-			var uploadedAt *time.Time
-			if whatsappChat != "" {
-				uploadedAt = &now
-			}
-			initialConversations = append(initialConversations, models.ConversationItem{
-				ID:              primitive.NewObjectID(),
-				CallStartTime:   callStart,
-				CallEndTime:     callEnd,
-				Duration:        duration,
-				Outcome:         outcome,
-				WhatsAppChat:    whatsappChat,
-				DiscussionNotes: discussionNotes,
-				UploadedBy:      creatorName,
-				UploadedAt:      uploadedAt,
-				CreatedAt:       now,
-			})
-		}
-	}
-
-	// ─── Deduplication Check (Same Client Returning) ─────────────────────────
-	var existing models.Lead
-	isDuplicateFound := false
-	if len(last10) >= 6 {
-		err := col.FindOne(ctx, bson.M{
-			"phone":      bson.M{"$regex": last10 + "$"},
-			"deleted_at": bson.M{"$exists": false},
-		}).Decode(&existing)
-		if err == nil {
-			isDuplicateFound = true
-		}
-	}
-
-	if isDuplicateFound {
-		repeatCount := existing.RepeatEnquiryCount + 1
-
-		newEnquiry := models.EnquiryItem{
-			EnquiryNumber:   repeatCount + 1,
-			Date:            now,
-			Source:          req.Source,
-			ServiceRequired: strings.TrimSpace(req.ServiceRequired),
-			Message:         strings.TrimSpace(req.InitialEnquiry),
-		}
-
-		// Merge newly submitted debts with existing debts (Option A)
-		mergedDebts := existing.Debts
-		for _, newItem := range debtItems {
-			exists := false
-			for i, oldItem := range mergedDebts {
-				if strings.EqualFold(oldItem.Lender, newItem.Lender) && strings.EqualFold(oldItem.LoanType, newItem.LoanType) {
-					mergedDebts[i].OutstandingAmount = newItem.OutstandingAmount
-					mergedDebts[i].MonthlyEMI = newItem.MonthlyEMI
-					exists = true
-					break
-				}
-			}
-			if !exists {
-				mergedDebts = append(mergedDebts, newItem)
-			}
-		}
-
-		var calculatedDebt float64
-		for _, d := range mergedDebts {
-			calculatedDebt += d.OutstandingAmount
-		}
-		if calculatedDebt == 0 && totalDebt > 0 {
-			calculatedDebt = totalDebt
-		}
-
-		activityDesc := fmt.Sprintf("Repeat enquiry #%d received via %s", repeatCount+1, req.Source)
-		if len(debtItems) > 0 {
-			activityDesc += fmt.Sprintf(" (Added/updated %d loan(s), total debt: ₹%.0f)", len(debtItems), calculatedDebt)
-		}
-		if req.InitialEnquiry != "" {
-			activityDesc += fmt.Sprintf(": \"%s\"", strings.TrimSpace(req.InitialEnquiry))
-		}
-
-		activityItems := []models.ActivityItem{
-			{
-				ID:              primitive.NewObjectID(),
-				Type:            "REPEAT_ENQUIRY",
-				Description:     activityDesc,
-				PerformedByName: creatorName,
-				CreatedAt:       now,
-			},
-		}
-
-		for _, conv := range initialConversations {
-			if conv.CallStartTime != nil || conv.DiscussionNotes != "" {
-				desc := fmt.Sprintf("Call logged: %s", conv.Outcome)
-				if conv.DiscussionNotes != "" {
-					desc += fmt.Sprintf(" — %s", conv.DiscussionNotes)
-				}
-				activityItems = append(activityItems, models.ActivityItem{
-					ID:              primitive.NewObjectID(),
-					Type:            "CALL_LOGGED",
-					Description:     desc,
-					PerformedByName: creatorName,
-					CreatedAt:       now,
-				})
-			}
-			if conv.WhatsAppChat != "" {
-				activityItems = append(activityItems, models.ActivityItem{
-					ID:              primitive.NewObjectID(),
-					Type:            "WHATSAPP_LOGGED",
-					Description:     "WhatsApp chat transcript uploaded on repeat enquiry",
-					PerformedByName: creatorName,
-					CreatedAt:       now,
-				})
-			}
-		}
-
-		setUpdates := bson.M{
-			"is_reengaged":         true,
-			"repeat_enquiry_count": repeatCount,
-			"last_enquiry_at":      now,
-			"updated_at":           now,
-		}
-
-		if len(mergedDebts) > 0 || calculatedDebt > 0 {
-			finAssessment.Debts = mergedDebts
-			finAssessment.TotalDebtAmount = calculatedDebt
-			finAssessment.OutstandingAmount = calculatedDebt
-			if req.MonthlyIncome == 0 && existing.FinancialAssessment != nil {
-				finAssessment.MonthlyIncome = existing.FinancialAssessment.MonthlyIncome
-			}
-			if req.CurrentEMIAmount == 0 && existing.FinancialAssessment != nil {
-				finAssessment.TotalMonthlyEMI = existing.FinancialAssessment.TotalMonthlyEMI
-			}
-			setUpdates["financial_assessment"] = finAssessment
-			setUpdates["debts"] = mergedDebts
-			setUpdates["total_debt_amount"] = calculatedDebt
-			setUpdates["outstanding_amount"] = calculatedDebt
-		}
-
-		if req.Address != nil {
-			setUpdates["address"] = req.Address
-		}
-		if req.DOB != "" {
-			setUpdates["dob"] = req.DOB
-		}
-		if req.PANCard != "" {
-			setUpdates["pan_card"] = req.PANCard
-		}
-		if req.AlternatePhone != "" {
-			setUpdates["alternate_phone"] = req.AlternatePhone
-		}
-
-		// Status transitions on duplicate inquiry (Option A for QUALIFIED)
-		switch existing.Status {
-		case models.LeadStatusLost, models.LeadStatusUnreachable, models.LeadStatusUnqualified:
-			setUpdates["status"] = models.LeadStatusReengaged
-			setUpdates["priority"] = models.PriorityHigh
-
-		case models.LeadStatusQualified:
-			// Option A: Retain QUALIFIED stage, elevate priority to HIGH for agent review
-			setUpdates["priority"] = models.PriorityHigh
-
-		case models.LeadStatusConverted:
-			// Existing converted client returning for new loan/service
-			setUpdates["priority"] = models.PriorityHigh
-
-		default:
-			// Active pipeline stages (NEW, CONTACTED, FOLLOW_UP, IN_PROGRESS, RE_ENGAGED)
-			setUpdates["priority"] = models.PriorityHigh
-		}
-
-		pushUpdates := bson.M{
-			"enquiries":         newEnquiry,
-			"activity_timeline": bson.M{"$each": activityItems},
-		}
-
-		if len(initialConversations) > 0 {
-			pushUpdates["conversations"] = bson.M{"$each": initialConversations}
-		}
-
-		// Reassignment if an explicit new assignee is requested
-		if req.AssignedTo != "" {
-			if objID, err := primitive.ObjectIDFromHex(req.AssignedTo); err == nil {
-				if existing.AssignedTo == nil || *existing.AssignedTo != objID {
-					var emp struct {
-						Name string `bson:"name"`
-					}
-					if err := database.GetCollection("employees").FindOne(ctx, bson.M{"_id": objID}).Decode(&emp); err == nil {
-						setUpdates["assigned_to"] = &objID
-						setUpdates["assigned_to_name"] = emp.Name
-						pushUpdates["assignment_history"] = models.AssignmentLog{
-							ID:             primitive.NewObjectID(),
-							AssignedTo:     &objID,
-							AssignedToName: emp.Name,
-							AssignedBy:     creatorID,
-							AssignedByName: creatorName,
-							AssignedAt:     now,
-							Reason:         "Reassigned during repeat enquiry",
-						}
-					}
-				}
-			}
-		}
-
-		updateDoc := bson.M{
-			"$push": pushUpdates,
-			"$set":  setUpdates,
-		}
-
-		if _, err := col.UpdateOne(ctx, bson.M{"_id": existing.ID}, updateDoc); err != nil {
-			response.InternalServerError(c, "Failed to update existing lead with repeat enquiry")
+	// 5. Verify assignedTo employee (only allowed with "lead:assign" permission)
+	var assignedToID *primitive.ObjectID
+	if idStr := strings.TrimSpace(req.AssignedTo); idStr != "" {
+		if !hasLeadPermission(c, "lead:assign") {
+			response.Forbidden(c, "You do not have permission to assign leads")
 			return
 		}
 
-		response.Success(c, "Repeat enquiry recorded for existing lead", gin.H{
-			"leadNumber":  existing.LeadNumber,
-			"isDuplicate": true,
-			"message":     fmt.Sprintf("Existing lead %s re-engaged", existing.LeadNumber),
+		objID, err := primitive.ObjectIDFromHex(idStr)
+		if err != nil || objID.IsZero() {
+			response.BadRequest(c, "Invalid assignedTo employee ID format")
+			return
+		}
+
+		empCol := database.GetCollection("employees")
+		if empCol == nil {
+			response.InternalServerError(c, "Employee service unavailable")
+			return
+		}
+		empCount, err := empCol.CountDocuments(ctx, bson.M{
+			"_id":        objID,
+			"status":     employeemodels.EmployeeStatusActive,
+			"deleted_at": bson.M{"$exists": false},
 		})
+		if err != nil {
+			log.Printf("[ERROR] [LeadCreate] Employee lookup failed: %v", err)
+			response.InternalServerError(c, "Failed to verify assigned employee")
+			return
+		}
+		if empCount == 0 {
+			response.BadRequest(c, "Assigned employee not found or inactive")
+			return
+		}
+		assignedToID = &objID
+	}
+
+	// 6. Check duplicate active lead by phone number
+	dupCount, err := leadCol.CountDocuments(ctx, bson.M{
+		"personal.phone": req.Personal.Phone,
+		"deleted_at":     bson.M{"$exists": false},
+	})
+	if err != nil {
+		log.Printf("[ERROR] [LeadCreate] Duplicate check failed: %v", err)
+		response.InternalServerError(c, "Failed to validate lead uniqueness")
+		return
+	}
+	if dupCount > 0 {
+		response.Conflict(c, "A lead with this phone number already exists")
 		return
 	}
 
-	// ─── Brand New Lead Creation ─────────────────────────────────────────────
-	priority := models.PriorityNormal
-	if req.Priority != "" {
-		priority = req.Priority
+	// 7. Generate next sequential lead number (LEAD-0001, LEAD-0002, ...)
+	seq, err := reserveSequenceRange(ctx, "lead_number", leadCol, 1)
+	if err != nil {
+		log.Printf("[ERROR] [LeadCreate] Lead number generation failed: %v", err)
+		response.InternalServerError(c, "Failed to generate lead number")
+		return
 	}
-
-	var assignedToObjID *primitive.ObjectID
-	assignedToName := ""
-	assignmentHistory := []models.AssignmentLog{}
-
-	if req.AssignedTo != "" {
-		if objID, err := primitive.ObjectIDFromHex(req.AssignedTo); err == nil {
-			assignedToObjID = &objID
-			var emp struct {
-				Name string `bson:"name"`
-			}
-			empCol := database.GetCollection("employees")
-			if err := empCol.FindOne(ctx, bson.M{"_id": objID}).Decode(&emp); err == nil {
-				assignedToName = emp.Name
-				assignmentHistory = append(assignmentHistory, models.AssignmentLog{
-					ID:             primitive.NewObjectID(),
-					AssignedTo:     assignedToObjID,
-					AssignedToName: assignedToName,
-					AssignedBy:     creatorID,
-					AssignedByName: creatorName,
-					AssignedAt:     now,
-					Reason:         "Initial manual assignment during lead creation",
-				})
-			}
-		}
-	}
-
-	count, _ := col.CountDocuments(ctx, bson.M{})
-	seq := count + 1
 	leadNumber := fmt.Sprintf("LEAD-%04d", seq)
-	for {
-		existsCount, _ := col.CountDocuments(ctx, bson.M{"lead_number": leadNumber})
-		if existsCount == 0 {
-			break
+
+	// 8. Build lead document
+	now := time.Now().UTC()
+	status := models.LeadStatusNew
+	if req.Status != "" {
+		status = req.Status
+	}
+
+	var schedules []models.CallSchedule
+	for _, cs := range req.CallSchedules {
+		csStatus := models.CallScheduleStatusPending
+		if cs.Status != "" {
+			csStatus = cs.Status
 		}
-		seq++
-		leadNumber = fmt.Sprintf("LEAD-%04d", seq)
-	}
-
-	activityTimeline := []models.ActivityItem{
-		{
-			ID:              primitive.NewObjectID(),
-			Type:            "LEAD_CREATED",
-			Description:     fmt.Sprintf("Lead %s created via %s", leadNumber, req.Source),
-			PerformedByName: creatorName,
-			CreatedAt:       now,
-		},
-	}
-
-	if assignedToName != "" {
-		activityTimeline = append(activityTimeline, models.ActivityItem{
-			ID:              primitive.NewObjectID(),
-			Type:            "ASSIGNED",
-			Description:     fmt.Sprintf("Assigned to %s", assignedToName),
-			PerformedByName: creatorName,
-			CreatedAt:       now,
+		var completedAt *time.Time
+		if csStatus == models.CallScheduleStatusCompleted {
+			completedAt = &now
+		}
+		schedules = append(schedules, models.CallSchedule{
+			ID:          primitive.NewObjectID(),
+			Date:        cs.Date,
+			Status:      csStatus,
+			CallStatus:  cs.CallStatus,
+			Remark:      strings.TrimSpace(cs.Remark),
+			CreatedAt:   now,
+			CompletedAt: completedAt,
 		})
 	}
 
-	for _, conv := range initialConversations {
-		if conv.CallStartTime != nil || conv.DiscussionNotes != "" {
-			desc := fmt.Sprintf("Call logged: %s", conv.Outcome)
-			if conv.DiscussionNotes != "" {
-				desc += fmt.Sprintf(" — %s", conv.DiscussionNotes)
+	lead := models.Lead{
+		ID:              primitive.NewObjectID(),
+		LeadNumber:      leadNumber,
+		Status:          status,
+		Personal:        req.Personal,
+		Financial:       req.Financial,
+		Agreement:     req.Agreement,
+		ServiceType:   req.ServiceType,
+		AssignedTo:    assignedToID,
+		CallSchedules:   schedules,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+
+	// 9. Save to MongoDB
+	if _, err := leadCol.InsertOne(ctx, lead); err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			if strings.Contains(err.Error(), "personal.phone") {
+				response.Conflict(c, "A lead with this phone number already exists")
+				return
 			}
-			activityTimeline = append(activityTimeline, models.ActivityItem{
-				ID:              primitive.NewObjectID(),
-				Type:            "CALL_LOGGED",
-				Description:     desc,
-				PerformedByName: creatorName,
-				CreatedAt:       now,
-			})
+			log.Printf("[ERROR] [LeadCreate] Duplicate key error: %v", err)
+			response.Conflict(c, "A lead with these details already exists")
+			return
 		}
-		if conv.WhatsAppChat != "" {
-			activityTimeline = append(activityTimeline, models.ActivityItem{
-				ID:              primitive.NewObjectID(),
-				Type:            "WHATSAPP_LOGGED",
-				Description:     "Initial WhatsApp chat transcript uploaded",
-				PerformedByName: creatorName,
-				CreatedAt:       now,
-			})
-		}
-	}
-
-	initialEnquiryItem := models.EnquiryItem{
-		EnquiryNumber:   1,
-		Date:            now,
-		Source:          req.Source,
-		ServiceRequired: strings.TrimSpace(req.ServiceRequired),
-		Message:         strings.TrimSpace(req.InitialEnquiry),
-	}
-
-	city := req.City
-	state := req.State
-	if req.Address != nil {
-		if req.Address.City != "" {
-			city = req.Address.City
-		}
-		if req.Address.State != "" {
-			state = req.Address.State
-		}
-	}
-
-	initialStatus := models.LeadStatusNew
-	if req.Status != "" {
-		initialStatus = req.Status
-	}
-
-	newLead := models.Lead{
-		ID:                  primitive.NewObjectID(),
-		LeadNumber:          leadNumber,
-		FullName:            strings.TrimSpace(req.FullName),
-		Phone:               strings.TrimSpace(req.Phone),
-		AlternatePhone:      strings.TrimSpace(req.AlternatePhone),
-		Email:               strings.TrimSpace(req.Email),
-		DOB:                 strings.TrimSpace(req.DOB),
-		PANCard:             strings.TrimSpace(req.PANCard),
-		Address:             req.Address,
-		City:                strings.TrimSpace(city),
-		State:               strings.TrimSpace(state),
-		ServiceRequired:     strings.TrimSpace(req.ServiceRequired),
-		Source:              req.Source,
-		Priority:            priority,
-		InitialEnquiry:      strings.TrimSpace(req.InitialEnquiry),
-		QualificationNotes:  strings.TrimSpace(req.QualificationNotes),
-		Status:              initialStatus,
-		TotalDebtAmount:     totalDebt,
-		OutstandingAmount:   totalDebt,
-		AssignedTo:          assignedToObjID,
-		AssignedToName:      assignedToName,
-		AssignmentHistory:   assignmentHistory,
-		Enquiries:           []models.EnquiryItem{initialEnquiryItem},
-		Debts:               debtItems,
-		Conversations:       initialConversations,
-		FollowUps:           []models.FollowUp{},
-		ActivityTimeline:    activityTimeline,
-		FinancialAssessment: finAssessment,
-		CreatedAt:           now,
-		UpdatedAt:           now,
-	}
-
-	if _, err := col.InsertOne(ctx, newLead); err != nil {
+		log.Printf("[ERROR] [LeadCreate] Insert failed: %v", err)
 		response.InternalServerError(c, "Failed to create lead")
 		return
 	}
 
-	response.Success(c, "Lead created successfully", nil)
+	response.Success(c, "Lead created successfully", gin.H{
+		"id":         lead.ID.Hex(),
+		"leadNumber": lead.LeadNumber,
+	})
 }

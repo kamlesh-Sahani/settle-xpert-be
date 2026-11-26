@@ -12,13 +12,13 @@ func RegisterRoutes(router *gin.Engine) {
 	{
 		leadGroup.POST("/list", middleware.Protect("lead:read"), controllers.List)
 		leadGroup.GET("/get", middleware.Protect("lead:read"), controllers.GetByID)
-		leadGroup.GET("/status", middleware.Protect("lead:update", "lead:read"), controllers.UpdateStatus)
+		leadGroup.GET("/status", middleware.Protect("lead:update"), controllers.UpdateStatus)
 		leadGroup.POST("/create", middleware.Protect("lead:create"), controllers.Create)
 		leadGroup.POST("/bulk-create", middleware.Protect("lead:create"), controllers.BulkCreate)
 		leadGroup.POST("/validate-import", middleware.Protect("lead:create"), controllers.ValidateImport)
-		leadGroup.GET("/import-fields", middleware.Protect("lead:read"), controllers.GetImportFields)
+		leadGroup.GET("/import-fields", middleware.Protect("lead:create"), controllers.GetImportFields)
 		leadGroup.POST("/update", middleware.Protect("lead:update"), controllers.Update)
-		leadGroup.POST("/convert", middleware.Protect("lead:convert", "lead:update"), controllers.ConvertLeadToCustomer)
+		leadGroup.POST("/delete", middleware.Protect("lead:delete"), controllers.Delete)
 		leadGroup.POST("/follow-up/create", middleware.Protect("lead:update"), controllers.CreateFollowUp)
 		leadGroup.POST("/follow-up/status", middleware.Protect("lead:update"), controllers.UpdateFollowUpStatus)
 	}

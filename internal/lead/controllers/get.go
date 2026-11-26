@@ -3,6 +3,7 @@ package controllers
 import (
 	"errors"
 	"log"
+	"strings"
 
 	"lead-crm/backend/database"
 	"lead-crm/backend/internal/lead/models"
@@ -15,25 +16,31 @@ import (
 )
 
 func GetByID(c *gin.Context) {
-	idStr := c.Query("id")
+	idStr := strings.TrimSpace(c.Query("id"))
 	if idStr == "" {
 		response.BadRequest(c, "Lead ID is required")
 		return
 	}
 
 	objID, err := primitive.ObjectIDFromHex(idStr)
-	if err != nil {
+	if err != nil || objID.IsZero() {
 		response.BadRequest(c, "Invalid lead ID format")
 		return
 	}
 
 	col := database.GetCollection("leads")
-	ctx := c.Request.Context()
+	if col == nil {
+		response.InternalServerError(c, "Database service unavailable")
+		return
+	}
 
-	filter := bson.M{"_id": objID, "deleted_at": bson.M{"$exists": false}}
+	filter := bson.M{
+		"_id":        objID,
+		"deleted_at": bson.M{"$exists": false},
+	}
 
 	var lead models.Lead
-	if err := col.FindOne(ctx, filter).Decode(&lead); err != nil {
+	if err := col.FindOne(c.Request.Context(), filter).Decode(&lead); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			response.NotFound(c, "Lead not found")
 			return
@@ -43,18 +50,19 @@ func GetByID(c *gin.Context) {
 		return
 	}
 
-	// Ensure slices are initialized for JSON response
-	if lead.Conversations == nil {
-		lead.Conversations = []models.ConversationItem{}
+	if lead.CallSchedules == nil {
+		lead.CallSchedules = []models.CallSchedule{}
 	}
-	if lead.Debts == nil {
-		lead.Debts = []models.DebtItem{}
+	if lead.Financial != nil && lead.Financial.Lenders == nil {
+		lead.Financial.Lenders = []models.Lender{}
 	}
-	if lead.FollowUps == nil {
-		lead.FollowUps = []models.FollowUp{}
-	}
-	if lead.ActivityTimeline == nil {
-		lead.ActivityTimeline = []models.ActivityItem{}
+	if !hasLeadPermission(c, "lead:assign") {
+		lead.AssignedTo = nil
+	} else if lead.AssignedTo != nil && !lead.AssignedTo.IsZero() {
+		employeeNames := fetchEmployeeNameMap(c.Request.Context())
+		if name := employeeNames[lead.AssignedTo.Hex()]; name != "" {
+			lead.AssignedToName = name
+		}
 	}
 
 	response.Success(c, "Lead retrieved successfully", lead)

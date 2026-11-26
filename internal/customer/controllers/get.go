@@ -6,7 +6,6 @@ import (
 
 	"lead-crm/backend/database"
 	"lead-crm/backend/internal/customer/models"
-	leadmodels "lead-crm/backend/internal/lead/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kamlesh-Sahani/go-commons/response"
@@ -45,7 +44,7 @@ func GetByID(c *gin.Context) {
 	}
 
 	if customer.Debts == nil {
-		customer.Debts = []leadmodels.DebtItem{}
+		customer.Debts = []models.DebtItem{}
 	}
 
 	if len(customer.Loans) == 0 && len(customer.Debts) > 0 {

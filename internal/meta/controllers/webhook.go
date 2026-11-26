@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"lead-crm/backend/database"
-	metaModels "lead-crm/backend/internal/meta/models"
 	leadModels "lead-crm/backend/internal/lead/models"
+	metaModels "lead-crm/backend/internal/meta/models"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
@@ -192,21 +192,16 @@ func processLead(ctx context.Context, leadgenID, formID, pageID, adID, raw strin
 	}
 
 	// 3. Map field data
+	now := time.Now().UTC()
 	lead := leadModels.Lead{
-		Source: leadModels.SourceFacebookAds,
-		Status: leadModels.LeadStatusNew,
-		MetaDetails: &leadModels.MetaDetails{
-			LeadgenID: leadgenID,
-			FormID:    formID,
-			PageID:    pageID,
-			AdID:      adID,
-		},
-		RawFields: make(map[string]string),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		ID:        primitive.NewObjectID(),
+		Status:    leadModels.LeadStatusNew,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
 	var firstName, lastName string
+	var totalOutstanding float64
 
 	for _, field := range metaLead.FieldData {
 		val := ""
@@ -214,52 +209,74 @@ func processLead(ctx context.Context, leadgenID, formID, pageID, adID, raw strin
 			val = strings.TrimSpace(field.Values[0])
 		}
 		key := strings.ToLower(field.Name)
-		lead.RawFields[field.Name] = val
 
 		// Map to CRM fields
 		switch key {
 		case "full_name", "name":
-			lead.FullName = val
+			lead.Personal.FullName = val
 		case "first_name":
 			firstName = val
 		case "last_name":
 			lastName = val
 		case "email":
-			lead.Email = strings.ToLower(val)
+			lead.Personal.Email = strings.ToLower(val)
 		case "phone_number", "phone":
-			lead.Phone = val
+			digits := strings.Map(func(r rune) rune {
+				if r >= '0' && r <= '9' {
+					return r
+				}
+				return -1
+			}, val)
+			if len(digits) == 11 && strings.HasPrefix(digits, "0") {
+				digits = digits[1:]
+			} else if len(digits) == 12 && strings.HasPrefix(digits, "91") {
+				digits = digits[2:]
+			}
+			if len(digits) == 10 {
+				lead.Personal.Phone = digits
+			} else {
+				lead.Personal.Phone = val
+			}
 		case "city":
-			lead.City = val
+			lead.Personal.City = val
 		case "state":
-			lead.State = val
+			lead.Personal.State = val
 		case "loan_type", "type_of_loan":
-			lead.LoanType = val
+			lead.ServiceType = val
 		case "total_debt", "total_debt_amount", "debt_amount":
-			if parsed, err := strconv.ParseFloat(val, 64); err == nil {
-				lead.TotalDebtAmount = parsed
+			if parsed, err := strconv.ParseFloat(val, 64); err == nil && parsed >= 0 {
+				totalOutstanding = parsed
 			}
 		}
 	}
 
-	if lead.FullName == "" && (firstName != "" || lastName != "") {
-		lead.FullName = strings.TrimSpace(firstName + " " + lastName)
+	if totalOutstanding > 0 {
+		lead.Financial = &leadModels.FinancialInfo{
+			TotalOutstandingAmount: totalOutstanding,
+		}
 	}
 
-	syncLog.FullName = lead.FullName
-	syncLog.Phone = lead.Phone
-	syncLog.Email = lead.Email
+	if lead.Personal.FullName == "" && (firstName != "" || lastName != "") {
+		lead.Personal.FullName = strings.TrimSpace(firstName + " " + lastName)
+	}
+
+	syncLog.FullName = lead.Personal.FullName
+	syncLog.Phone = lead.Personal.Phone
+	syncLog.Email = lead.Personal.Email
 
 	// 4. Duplicate Check (by Phone or Email)
-	if lead.Phone != "" || lead.Email != "" {
-		dupFilter := bson.M{}
+	if lead.Personal.Phone != "" || lead.Personal.Email != "" {
 		var orConditions []bson.M
-		if lead.Phone != "" {
-			orConditions = append(orConditions, bson.M{"phone": lead.Phone})
+		if lead.Personal.Phone != "" {
+			orConditions = append(orConditions, bson.M{"personal.phone": lead.Personal.Phone})
 		}
-		if lead.Email != "" {
-			orConditions = append(orConditions, bson.M{"email": lead.Email})
+		if lead.Personal.Email != "" {
+			orConditions = append(orConditions, bson.M{"personal.email": lead.Personal.Email})
 		}
-		dupFilter["$or"] = orConditions
+		dupFilter := bson.M{
+			"$or":        orConditions,
+			"deleted_at": bson.M{"$exists": false},
+		}
 
 		var existingLead leadModels.Lead
 		if err := leadColl.FindOne(ctx, dupFilter).Decode(&existingLead); err == nil {
@@ -279,8 +296,7 @@ func processLead(ctx context.Context, leadgenID, formID, pageID, adID, raw strin
 	syncLog.LeadNumber = lead.LeadNumber
 
 	// 6. Insert lead into DB
-	insertRes, err := leadColl.InsertOne(ctx, lead)
-	if err != nil {
+	if _, err := leadColl.InsertOne(ctx, lead); err != nil {
 		syncLog.Status = "FAILED"
 		syncLog.ErrorMessage = fmt.Sprintf("Failed to insert lead into database: %v", err)
 		if logColl != nil {
@@ -289,13 +305,9 @@ func processLead(ctx context.Context, leadgenID, formID, pageID, adID, raw strin
 		return
 	}
 
-	if oid, ok := insertRes.InsertedID.(primitive.ObjectID); ok {
-		lead.ID = oid
-	}
-
 	syncLog.Status = "SUCCESS"
 	if logColl != nil {
 		_, _ = logColl.InsertOne(ctx, syncLog)
 	}
-	log.Printf("[META WEBHOOK] Successfully synced new lead: %s (%s)", lead.FullName, lead.LeadNumber)
+	log.Printf("[META WEBHOOK] Successfully synced new lead: %s (%s)", lead.Personal.FullName, lead.LeadNumber)
 }
