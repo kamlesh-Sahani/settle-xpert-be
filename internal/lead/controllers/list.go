@@ -50,7 +50,7 @@ func List(c *gin.Context) {
 
 	var employeeNames map[string]string
 	if canAssign {
-		employeeNames = fetchEmployeeNameMap(c.Request.Context())
+		employeeNames = FetchEmployeeNameMap(c.Request.Context())
 	}
 
 	projection := bson.M{
@@ -249,7 +249,7 @@ func extractLeadSortValue(l models.Lead, sortField string) any {
 	}
 }
 
-func fetchEmployeeNameMap(ctx context.Context) map[string]string {
+func FetchEmployeeNameMap(ctx context.Context) map[string]string {
 	now := time.Now()
 	empCacheMu.RLock()
 	if empNameCache != nil && now.Before(empCacheExpires) {

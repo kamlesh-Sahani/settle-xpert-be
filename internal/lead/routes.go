@@ -11,6 +11,8 @@ func RegisterRoutes(router *gin.Engine) {
 	leadGroup := router.Group("/api/v1/lead")
 	{
 		leadGroup.POST("/list", middleware.Protect("lead:read"), controllers.List)
+		leadGroup.GET("/options", middleware.Protect("lead:read"), controllers.Options)
+		leadGroup.GET("/get-info", middleware.Protect("lead:read"), controllers.GetInfo)
 		leadGroup.GET("/get", middleware.Protect("lead:read"), controllers.GetByID)
 		leadGroup.GET("/status", middleware.Protect("lead:update"), controllers.UpdateStatus)
 		leadGroup.POST("/create", middleware.Protect("lead:create"), controllers.Create)

@@ -66,6 +66,29 @@ var AvailablePermissions = []PermissionGroup{
 		},
 	},
 	{
+		Module: "Agreements",
+		Permissions: []PermissionItem{
+			{
+				ID:          "agreement:read",
+				Title:       "View Agreement & PDF",
+				Description: "Can access the Agreement page, view template, and generate agreement PDFs",
+				Category:    "Agreements",
+			},
+			{
+				ID:          "agreement:create",
+				Title:       "Create Agreement",
+				Description: "Can create and save agreements for leads",
+				Category:    "Agreements",
+			},
+			{
+				ID:          "agreement:template",
+				Title:       "Manage Agreement Template",
+				Description: "Can edit and update the master consultancy agreement template",
+				Category:    "Agreements",
+			},
+		},
+	},
+	{
 		Module: "Customers",
 		Permissions: []PermissionItem{
 			{
@@ -91,175 +114,6 @@ var AvailablePermissions = []PermissionGroup{
 				Title:       "Delete Customer",
 				Description: "Can archive customer profiles",
 				Category:    "Customers",
-			},
-		},
-	},
-	{
-		Module: "Loans & Debts",
-		Permissions: []PermissionItem{
-			{
-				ID:          "loan:read",
-				Title:       "View Loans",
-				Description: "Can view customer loan accounts, balances, and EMI schedules",
-				Category:    "Loans",
-			},
-			{
-				ID:          "loan:create",
-				Title:       "Add Loan Record",
-				Description: "Can register new bank loans, credit cards, and instant app debts",
-				Category:    "Loans",
-			},
-			{
-				ID:          "loan:update",
-				Title:       "Update Loan Record",
-				Description: "Can update outstanding balances, overdue amounts, and lender responses",
-				Category:    "Loans",
-			},
-			{
-				ID:          "loan:delete",
-				Title:       "Delete Loan Record",
-				Description: "Can delete mistakenly entered debt records",
-				Category:    "Loans",
-			},
-		},
-	},
-	{
-		Module: "Case Management",
-		Permissions: []PermissionItem{
-			{
-				ID:          "case:read",
-				Title:       "View Cases",
-				Description: "Can view active and historical assistance cases",
-				Category:    "Cases",
-			},
-			{
-				ID:          "case:create",
-				Title:       "Create Case",
-				Description: "Can open a new assistance case engagement for a customer",
-				Category:    "Cases",
-			},
-			{
-				ID:          "case:update",
-				Title:       "Update Case",
-				Description: "Can modify case priority, manager assignment, and details",
-				Category:    "Cases",
-			},
-			{
-				ID:          "case:transition",
-				Title:       "Advance Case Workflow Stage",
-				Description: "Can change case stage through the sequential workflow",
-				Category:    "Cases",
-			},
-			{
-				ID:          "case:note",
-				Title:       "Add Case Note",
-				Description: "Can append progress notes and internal observations to a case",
-				Category:    "Cases",
-			},
-			{
-				ID:          "case:delete",
-				Title:       "Delete Case",
-				Description: "Can remove or reject cancelled cases",
-				Category:    "Cases",
-			},
-		},
-	},
-	{
-		Module: "Debt Assessments",
-		Permissions: []PermissionItem{
-			{
-				ID:          "assessment:read",
-				Title:       "View Debt Assessment",
-				Description: "Can view income vs expense assessments and repayment capacity",
-				Category:    "Assessments",
-			},
-			{
-				ID:          "assessment:create",
-				Title:       "Create Debt Assessment",
-				Description: "Can record financial analysis and generate repayment pathways",
-				Category:    "Assessments",
-			},
-			{
-				ID:          "assessment:update",
-				Title:       "Update Debt Assessment",
-				Description: "Can modify assessment calculations and notes",
-				Category:    "Assessments",
-			},
-			{
-				ID:          "assessment:delete",
-				Title:       "Delete Debt Assessment",
-				Description: "Can remove obsolete financial assessments",
-				Category:    "Assessments",
-			},
-		},
-	},
-	{
-		Module: "Tasks & Follow-ups",
-		Permissions: []PermissionItem{
-			{
-				ID:          "task:read",
-				Title:       "View Tasks",
-				Description: "Can view assigned follow-up calls, reminders, and deadlines",
-				Category:    "Tasks",
-			},
-			{
-				ID:          "task:create",
-				Title:       "Create Task",
-				Description: "Can schedule follow-up actions and reminders",
-				Category:    "Tasks",
-			},
-			{
-				ID:          "task:update",
-				Title:       "Update Task",
-				Description: "Can reschedule dates and modify task descriptions",
-				Category:    "Tasks",
-			},
-			{
-				ID:          "task:complete",
-				Title:       "Complete Task",
-				Description: "Can mark follow-up tasks as resolved with outcome notes",
-				Category:    "Tasks",
-			},
-			{
-				ID:          "task:delete",
-				Title:       "Delete Task",
-				Description: "Can remove tasks",
-				Category:    "Tasks",
-			},
-		},
-	},
-	{
-		Module: "Harassment Complaints",
-		Permissions: []PermissionItem{
-			{
-				ID:          "complaint:read",
-				Title:       "View Complaints",
-				Description: "Can review customer recovery agent harassment complaints",
-				Category:    "Complaints",
-			},
-			{
-				ID:          "complaint:create",
-				Title:       "File Complaint",
-				Description: "Can log harassment incident reports and agent call details",
-				Category:    "Complaints",
-			},
-			{
-				ID:          "complaint:update",
-				Title:       "Update Complaint",
-				Description: "Can update investigation progress and legal notices",
-				Category:    "Complaints",
-			},
-			{
-				ID:          "complaint:resolve",
-				Title:       "Resolve Complaint",
-				Description: "Can mark complaints as resolved with bank escalation outcome",
-				Category:    "Complaints",
-			},
-			{
-				ID:          "complaint:delete",
-				Title:       "Delete Complaint",
-				Description: "Can delete dismissed complaint logs",
-				Category:    "Complaints",
 			},
 		},
 	},

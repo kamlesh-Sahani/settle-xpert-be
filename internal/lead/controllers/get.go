@@ -59,7 +59,7 @@ func GetByID(c *gin.Context) {
 	if !hasLeadPermission(c, "lead:assign") {
 		lead.AssignedTo = nil
 	} else if lead.AssignedTo != nil && !lead.AssignedTo.IsZero() {
-		employeeNames := fetchEmployeeNameMap(c.Request.Context())
+		employeeNames := FetchEmployeeNameMap(c.Request.Context())
 		if name := employeeNames[lead.AssignedTo.Hex()]; name != "" {
 			lead.AssignedToName = name
 		}
