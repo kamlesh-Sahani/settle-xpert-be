@@ -58,9 +58,6 @@ func Create(c *gin.Context) {
 	req.Personal.EmploymentType = strings.TrimSpace(req.Personal.EmploymentType)
 	req.ServiceType = strings.TrimSpace(req.ServiceType)
 
-	if req.Agreement != nil {
-		req.Agreement.Duration = strings.TrimSpace(req.Agreement.Duration)
-	}
 	if req.Financial != nil {
 		for i := range req.Financial.Lenders {
 			req.Financial.Lenders[i].LenderName = strings.TrimSpace(req.Financial.Lenders[i].LenderName)

@@ -28,8 +28,8 @@ type AgreementPersonalInput struct {
 }
 
 type AgreementDetailsInput struct {
-	Duration           string     `json:"duration" binding:"required,max=80"`
-	ResolutionDuration string     `json:"resolutionDuration" binding:"required,max=80"`
+	Duration           int        `json:"duration" binding:"required,gte=1"`
+	ResolutionDuration int        `json:"resolutionDuration" binding:"required,gte=1"`
 	ConsultingFees     float64    `json:"consultingFees" binding:"gte=0"`
 	StartDate          *time.Time `json:"startDate"`
 	ExecutedDate       *time.Time `json:"executedDate"`
@@ -85,15 +85,13 @@ func Create(c *gin.Context) {
 		return
 	}
 
-	duration := strings.TrimSpace(req.Agreement.Duration)
-	if duration == "" {
-		response.BadRequest(c, "Agreement duration is required")
+	if req.Agreement.Duration <= 0 {
+		response.BadRequest(c, "Agreement duration must be at least 1 month")
 		return
 	}
 
-	resolutionDuration := strings.TrimSpace(req.Agreement.ResolutionDuration)
-	if resolutionDuration == "" {
-		response.BadRequest(c, "Resolution duration is required")
+	if req.Agreement.ResolutionDuration <= 0 {
+		response.BadRequest(c, "Resolution duration must be at least 1 month")
 		return
 	}
 
@@ -152,8 +150,8 @@ func Create(c *gin.Context) {
 		"financial.monthly_income":            req.Agreement.MonthlyIncome,
 		"financial.lenders":                   lenders,
 		"financial.total_outstanding_amount":  totalOutstanding,
-		"agreement.duration":                  duration,
-		"agreement.resolution_duration":       resolutionDuration,
+		"agreement.duration":                  req.Agreement.Duration,
+		"agreement.resolution_duration":       req.Agreement.ResolutionDuration,
 		"agreement.consulting_fees":           req.Agreement.ConsultingFees,
 		"agreement.start_date":                req.Agreement.StartDate,
 		"agreement.executed_date":             req.Agreement.ExecutedDate,

@@ -44,8 +44,8 @@ type FinancialUpdateInput struct {
 }
 
 type AgreementUpdateInput struct {
-	Duration           *string    `json:"duration" binding:"omitempty,max=80"`
-	ResolutionDuration *string    `json:"resolutionDuration" binding:"omitempty,max=80"`
+	Duration           *int       `json:"duration" binding:"omitempty,gte=0"`
+	ResolutionDuration *int       `json:"resolutionDuration" binding:"omitempty,gte=0"`
 	ConsultingFees     *float64   `json:"consultingFees" binding:"omitempty,gte=0"`
 	ExecutedDate       *time.Time `json:"executedDate"`
 }
@@ -93,6 +93,11 @@ func Update(c *gin.Context) {
 		}
 		log.Printf("[ERROR] [LeadUpdate] Lookup failed: %v", err)
 		response.InternalServerError(c, "Failed to retrieve lead")
+		return
+	}
+
+	if existing.Status == models.LeadStatusConverted {
+		response.BadRequest(c, "Converted leads cannot be updated")
 		return
 	}
 
@@ -227,10 +232,10 @@ func Update(c *gin.Context) {
 	// 3. Agreement updates
 	if req.Agreement != nil {
 		if req.Agreement.Duration != nil {
-			setFields["agreement.duration"] = strings.TrimSpace(*req.Agreement.Duration)
+			setFields["agreement.duration"] = *req.Agreement.Duration
 		}
 		if req.Agreement.ResolutionDuration != nil {
-			setFields["agreement.resolution_duration"] = strings.TrimSpace(*req.Agreement.ResolutionDuration)
+			setFields["agreement.resolution_duration"] = *req.Agreement.ResolutionDuration
 		}
 		if req.Agreement.ConsultingFees != nil {
 			setFields["agreement.consulting_fees"] = *req.Agreement.ConsultingFees

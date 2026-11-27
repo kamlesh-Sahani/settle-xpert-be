@@ -23,8 +23,14 @@ type ValidatedLeadItem struct {
 	FullName               string                  `json:"fullName"`
 	Phone                  string                  `json:"phone"`
 	Email                  string                  `json:"email"`
+	DOB                    string                  `json:"dob"`
+	PANNumber              string                  `json:"panNumber"`
+	MaritalStatus          string                  `json:"maritalStatus"`
+	FullAddress            string                  `json:"fullAddress"`
 	City                   string                  `json:"city"`
 	State                  string                  `json:"state"`
+	EmploymentStatus       models.EmploymentStatus `json:"employmentStatus,omitempty"`
+	EmploymentType         string                  `json:"employmentType"`
 	ServiceType            string                  `json:"serviceType"`
 	TotalOutstandingAmount float64                 `json:"totalOutstandingAmount"`
 	CreditCardDue          float64                 `json:"creditCardDue"`
@@ -107,8 +113,14 @@ func ValidateImport(c *gin.Context) {
 			FullName:               fullName,
 			Phone:                  cleanedPhone,
 			Email:                  strings.ToLower(strings.TrimSpace(item.Email)),
+			DOB:                    strings.TrimSpace(item.DOB),
+			PANNumber:              strings.ToUpper(strings.TrimSpace(item.PANNumber)),
+			MaritalStatus:          strings.TrimSpace(item.MaritalStatus),
+			FullAddress:            strings.TrimSpace(item.FullAddress),
 			City:                   strings.TrimSpace(item.City),
 			State:                  strings.TrimSpace(item.State),
+			EmploymentStatus:       item.EmploymentStatus,
+			EmploymentType:         strings.TrimSpace(item.EmploymentType),
 			ServiceType:            strings.TrimSpace(item.ServiceType),
 			TotalOutstandingAmount: item.TotalOutstandingAmount,
 			CreditCardDue:          item.CreditCardDue,

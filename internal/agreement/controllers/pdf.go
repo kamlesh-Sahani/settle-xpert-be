@@ -36,8 +36,7 @@ const (
 )
 
 var (
-	durationDigitsRe = regexp.MustCompile(`(\d+)`)
-	htmlTagRe        = regexp.MustCompile(`<[^>]*>`)
+	htmlTagRe = regexp.MustCompile(`<[^>]*>`)
 )
 
 type rgbColor struct {
@@ -871,10 +870,8 @@ func renderLendersTable(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, req CreateAgreeme
 
 func renderFeeScheduleTable(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, req CreateAgreementRequest) {
 	months := 1
-	if m := durationDigitsRe.FindStringSubmatch(req.Agreement.Duration); len(m) > 1 {
-		if parsed, err := strconv.Atoi(m[1]); err == nil && parsed > 0 && parsed <= 60 {
-			months = parsed
-		}
+	if req.Agreement.Duration > 0 && req.Agreement.Duration <= 60 {
+		months = req.Agreement.Duration
 	}
 
 	baseDate := time.Now().Local()
@@ -1089,10 +1086,8 @@ func buildPlaceholderReplacements(req CreateAgreementRequest, preparedBy string)
 	}
 
 	months := 1
-	if m := durationDigitsRe.FindStringSubmatch(req.Agreement.Duration); len(m) > 1 {
-		if parsed, err := strconv.Atoi(m[1]); err == nil && parsed > 0 {
-			months = parsed
-		}
+	if req.Agreement.Duration > 0 {
+		months = req.Agreement.Duration
 	}
 	totalFee := req.Agreement.ConsultingFees * float64(months)
 
@@ -1116,18 +1111,14 @@ func buildPlaceholderReplacements(req CreateAgreementRequest, preparedBy string)
 	}
 }
 
-func formatDurationDisplay(raw string) string {
-	s := strings.TrimSpace(raw)
-	if s == "" {
+func formatDurationDisplay(months int) string {
+	if months <= 0 {
 		return "-"
 	}
-	if _, err := strconv.Atoi(s); err == nil {
-		if s == "1" {
-			return "1 Month"
-		}
-		return s + " Months"
+	if months == 1 {
+		return "1 Month"
 	}
-	return s
+	return fmt.Sprintf("%d Months", months)
 }
 
 func formatIndianNumber(amount float64) string {

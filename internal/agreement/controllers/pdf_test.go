@@ -24,8 +24,8 @@ func TestBuildAgreementPDFBytes(t *testing.T) {
 			{LenderName: "ICICI Bank", LoanType: "Credit Card", OutstandingAmount: 80000},
 		},
 		Agreement: AgreementDetailsInput{
-			Duration:           "6",
-			ResolutionDuration: "8",
+			Duration:           6,
+			ResolutionDuration: 8,
 			ConsultingFees:     7500,
 			StartDate:          &execDate,
 			ExecutedDate:       &execDate,

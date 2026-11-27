@@ -87,6 +87,11 @@ func CreateCallSchedule(c *gin.Context) {
 		return
 	}
 
+	if existing.Status == models.LeadStatusConverted {
+		response.BadRequest(c, "Cannot schedule a call for a converted lead")
+		return
+	}
+
 	for _, item := range existing.CallSchedules {
 		if item.Status == models.CallScheduleStatusPending {
 			response.BadRequest(c, "A call is already scheduled for this lead. Complete it before scheduling a new one.")
@@ -150,6 +155,32 @@ func UpdateCallScheduleStatus(c *gin.Context) {
 	col := database.GetCollection("leads")
 	if col == nil {
 		response.InternalServerError(c, "Database service unavailable")
+		return
+	}
+
+	ctx := c.Request.Context()
+	var existing struct {
+		Status models.LeadStatus `bson:"status"`
+	}
+	if err := col.FindOne(
+		ctx,
+		bson.M{
+			"_id":                leadObjID,
+			"call_schedules._id": scheduleObjID,
+			"deleted_at":         bson.M{"$exists": false},
+		},
+	).Decode(&existing); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			response.NotFound(c, "Lead or call schedule not found")
+			return
+		}
+		log.Printf("[ERROR] [CallScheduleUpdate] Lookup failed: %v", err)
+		response.InternalServerError(c, "Failed to retrieve lead")
+		return
+	}
+
+	if existing.Status == models.LeadStatusConverted {
+		response.BadRequest(c, "Cannot update call schedules for a converted lead")
 		return
 	}
 
