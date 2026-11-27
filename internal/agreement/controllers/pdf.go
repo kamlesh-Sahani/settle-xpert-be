@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"lead-crm/backend/assets"
 	"lead-crm/backend/database"
 	"lead-crm/backend/internal/agreement/models"
 	leadmodels "lead-crm/backend/internal/lead/models"
@@ -109,6 +110,28 @@ func configurePDFFonts(pdf *fpdf.Fpdf) pdfFontConfig {
 		pdf.AddUTF8Font("Inter", "B", bold)
 		pdf.AddUTF8Font("Inter", "I", italic)
 		pdf.AddUTF8Font("Inter", "BI", boldItalic)
+		if pdf.Ok() {
+			return pdfFontConfig{family: "Inter", unicode: true}
+		}
+		pdf.ClearError()
+	}
+
+	// Fallback to embedded fonts so production binaries work regardless of CWD
+	regBytes, errReg := assets.Files.ReadFile("fonts/Inter-Regular.ttf")
+	boldBytes, errBold := assets.Files.ReadFile("fonts/Inter-Bold.ttf")
+	if errReg == nil && errBold == nil {
+		italicBytes, errItalic := assets.Files.ReadFile("fonts/Inter-Italic.ttf")
+		if errItalic != nil {
+			italicBytes = regBytes
+		}
+		boldItalicBytes, errBI := assets.Files.ReadFile("fonts/Inter-BoldItalic.ttf")
+		if errBI != nil {
+			boldItalicBytes = boldBytes
+		}
+		pdf.AddUTF8FontFromBytes("Inter", "", regBytes)
+		pdf.AddUTF8FontFromBytes("Inter", "B", boldBytes)
+		pdf.AddUTF8FontFromBytes("Inter", "I", italicBytes)
+		pdf.AddUTF8FontFromBytes("Inter", "BI", boldItalicBytes)
 		if pdf.Ok() {
 			return pdfFontConfig{family: "Inter", unicode: true}
 		}
@@ -251,6 +274,20 @@ func buildAgreementPDFBytes(templateBody, templateFooter string, req CreateAgree
 	logoPath := resolveLogoPath()
 
 	pdf := fpdf.New("P", "mm", "A4", "")
+	if logoPath == "" {
+		if logoBytes, err := assets.Files.ReadFile("settlexpert-logo.png"); err == nil {
+			pdf.RegisterImageOptionsReader(
+				"settlexpert-logo.png",
+				fpdf.ImageOptions{ImageType: "PNG"},
+				bytes.NewReader(logoBytes),
+			)
+			if pdf.Ok() {
+				logoPath = "settlexpert-logo.png"
+			} else {
+				pdf.ClearError()
+			}
+		}
+	}
 	fontCfg := configurePDFFonts(pdf)
 	pdf.SetMargins(pageMarginL, pageTopY, pageMarginR)
 	pdf.SetAutoPageBreak(true, 18)
