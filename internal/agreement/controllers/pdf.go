@@ -418,12 +418,11 @@ func replacePlaceholders(cfg pdfFontConfig, text string, replacements map[string
 func collectInlineHTML(cfg pdfFontConfig, n *xhtml.Node, b, it, u bool, defaultColor *rgbColor, replacements map[string]string, pageNo int, out *[]textSegment) {
 	switch n.Type {
 	case xhtml.TextNode:
-		txt := strings.ReplaceAll(n.Data, "\u00a0", " ")
-		if txt == "" {
+		if n.Data == "" {
 			return
 		}
 		*out = append(*out, textSegment{
-			text:      replacePlaceholders(cfg, txt, replacements, pageNo),
+			text:      replacePlaceholders(cfg, n.Data, replacements, pageNo),
 			bold:      b,
 			italic:    it,
 			underline: u,
@@ -953,8 +952,20 @@ func renderRichWrappedTextAligned(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, x, maxW
 				i = j
 				continue
 			}
+			if strings.HasPrefix(seg.text[i:], "\u00a0") {
+				tokens = append(tokens, wordToken{
+					text:      " ",
+					bold:      seg.bold,
+					italic:    seg.italic,
+					underline: seg.underline,
+					color:     c,
+					space:     true,
+				})
+				i += len("\u00a0")
+				continue
+			}
 			j := i
-			for j < len(seg.text) && seg.text[j] != ' ' && seg.text[j] != '\t' {
+			for j < len(seg.text) && seg.text[j] != ' ' && seg.text[j] != '\t' && !strings.HasPrefix(seg.text[j:], "\u00a0") {
 				j++
 			}
 			tokens = append(tokens, wordToken{
