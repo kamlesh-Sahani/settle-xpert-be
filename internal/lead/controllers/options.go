@@ -22,6 +22,7 @@ import (
 type LeadOption struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
+	Link  string `json:"link,omitempty"`
 }
 
 // Options returns non-deleted leads as lightweight key/label pairs for SelectApiField.
@@ -95,6 +96,7 @@ func Options(c *gin.Context) {
 		items = append(items, LeadOption{
 			Key:   l.ID.Hex(),
 			Value: label,
+			Link:  "/employee/leads/detail/" + l.ID.Hex(),
 		})
 	}
 

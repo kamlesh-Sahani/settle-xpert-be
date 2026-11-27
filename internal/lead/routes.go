@@ -21,7 +21,7 @@ func RegisterRoutes(router *gin.Engine) {
 		leadGroup.GET("/import-fields", middleware.Protect("lead:create"), controllers.GetImportFields)
 		leadGroup.POST("/update", middleware.Protect("lead:update"), controllers.Update)
 		leadGroup.POST("/delete", middleware.Protect("lead:delete"), controllers.Delete)
-		leadGroup.POST("/follow-up/create", middleware.Protect("lead:update"), controllers.CreateFollowUp)
-		leadGroup.POST("/follow-up/status", middleware.Protect("lead:update"), controllers.UpdateFollowUpStatus)
+		leadGroup.POST("/call-schedule/create", middleware.Protect("lead:update"), controllers.CreateCallSchedule)
+		leadGroup.POST("/call-schedule/status", middleware.Protect("lead:update"), controllers.UpdateCallScheduleStatus)
 	}
 }

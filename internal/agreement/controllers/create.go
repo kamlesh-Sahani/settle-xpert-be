@@ -28,11 +28,12 @@ type AgreementPersonalInput struct {
 }
 
 type AgreementDetailsInput struct {
-	Duration       string     `json:"duration" binding:"required,max=80"`
-	ConsultingFees float64    `json:"consultingFees" binding:"gte=0"`
-	StartDate      *time.Time `json:"startDate"`
-	ExecutedDate   *time.Time `json:"executedDate"`
-	MonthlyIncome  float64    `json:"monthlyIncome" binding:"gte=0"`
+	Duration           string     `json:"duration" binding:"required,max=80"`
+	ResolutionDuration string     `json:"resolutionDuration" binding:"required,max=80"`
+	ConsultingFees     float64    `json:"consultingFees" binding:"gte=0"`
+	StartDate          *time.Time `json:"startDate"`
+	ExecutedDate       *time.Time `json:"executedDate"`
+	MonthlyIncome      float64    `json:"monthlyIncome" binding:"gte=0"`
 }
 
 type CreateAgreementRequest struct {
@@ -44,6 +45,22 @@ type CreateAgreementRequest struct {
 
 // Create saves agreement details, personal info, selected lenders, and monthly income onto the lead.
 func Create(c *gin.Context) {
+	emp, ok := utils.GetAuthEmployee(c)
+	if !ok || emp == nil {
+		response.Unauthorized(c, "Unauthorized")
+		return
+	}
+	preparedByID, err := primitive.ObjectIDFromHex(strings.TrimSpace(emp.EmployeeID))
+	if err != nil || preparedByID.IsZero() {
+		response.Unauthorized(c, "Invalid authenticated employee")
+		return
+	}
+	preparedByName := strings.TrimSpace(emp.Name)
+	if preparedByName == "" {
+		response.Unauthorized(c, "Authenticated employee name is missing")
+		return
+	}
+
 	var req CreateAgreementRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, commonsutils.FormatValidationError(err))
@@ -62,10 +79,43 @@ func Create(c *gin.Context) {
 		return
 	}
 
+	phone := strings.TrimSpace(req.Personal.Phone)
+	if phone == "" {
+		response.BadRequest(c, "Phone number is required")
+		return
+	}
+
 	duration := strings.TrimSpace(req.Agreement.Duration)
 	if duration == "" {
 		response.BadRequest(c, "Agreement duration is required")
 		return
+	}
+
+	resolutionDuration := strings.TrimSpace(req.Agreement.ResolutionDuration)
+	if resolutionDuration == "" {
+		response.BadRequest(c, "Resolution duration is required")
+		return
+	}
+
+	lenders := make([]leadmodels.Lender, 0, len(req.Lenders))
+	var totalOutstanding float64
+	for _, l := range req.Lenders {
+		name := strings.TrimSpace(l.LenderName)
+		loanType := strings.TrimSpace(l.LoanType)
+		if name == "" || loanType == "" {
+			response.BadRequest(c, "Lender name and loan type cannot be empty")
+			return
+		}
+		if l.OutstandingAmount < 0 {
+			response.BadRequest(c, "Lender outstanding amount cannot be negative")
+			return
+		}
+		lenders = append(lenders, leadmodels.Lender{
+			LenderName:        name,
+			LoanType:          loanType,
+			OutstandingAmount: l.OutstandingAmount,
+		})
+		totalOutstanding += l.OutstandingAmount
 	}
 
 	col := database.GetCollection("leads")
@@ -74,13 +124,14 @@ func Create(c *gin.Context) {
 		return
 	}
 
+	ctx := c.Request.Context()
 	filter := bson.M{
 		"_id":        leadObjID,
 		"deleted_at": bson.M{"$exists": false},
 	}
 
 	var existing leadmodels.Lead
-	if err := col.FindOne(c.Request.Context(), filter).Decode(&existing); err != nil {
+	if err := col.FindOne(ctx, filter).Decode(&existing); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			response.NotFound(c, "Lead not found")
 			return
@@ -90,52 +141,35 @@ func Create(c *gin.Context) {
 		return
 	}
 
-	var preparedByID *primitive.ObjectID
-	preparedByName := "System"
-	if emp, ok := utils.GetAuthEmployee(c); ok && emp != nil {
-		preparedByName = emp.Name
-		if oid, err := primitive.ObjectIDFromHex(emp.EmployeeID); err == nil && !oid.IsZero() {
-			preparedByID = &oid
-		}
-	}
-
-	lenders := make([]leadmodels.Lender, 0, len(req.Lenders))
-	for _, l := range req.Lenders {
-		name := strings.TrimSpace(l.LenderName)
-		loanType := strings.TrimSpace(l.LoanType)
-		if name == "" || loanType == "" {
-			response.BadRequest(c, "Lender name and loan type cannot be empty")
-			return
-		}
-		lenders = append(lenders, leadmodels.Lender{
-			LenderName:        name,
-			LoanType:          loanType,
-			OutstandingAmount: l.OutstandingAmount,
-		})
-	}
-
 	now := time.Now().UTC()
 	setFields := bson.M{
-		"personal.full_name":           fullName,
-		"personal.pan_number":          strings.ToUpper(strings.TrimSpace(req.Personal.PANNumber)),
-		"personal.dob":                 strings.TrimSpace(req.Personal.DOB),
-		"personal.phone":               strings.TrimSpace(req.Personal.Phone),
-		"personal.email":               strings.ToLower(strings.TrimSpace(req.Personal.Email)),
-		"personal.full_address":        strings.TrimSpace(req.Personal.FullAddress),
-		"financial.monthly_income":     req.Agreement.MonthlyIncome,
-		"financial.lenders":            lenders,
-		"agreement.duration":           duration,
-		"agreement.consulting_fees":    req.Agreement.ConsultingFees,
-		"agreement.start_date":         req.Agreement.StartDate,
-		"agreement.executed_date":      req.Agreement.ExecutedDate,
-		"agreement.prepared_by":        preparedByID,
-		"agreement.prepared_by_name":   preparedByName,
-		"updated_at":                   now,
+		"personal.full_name":                  fullName,
+		"personal.pan_number":                 strings.ToUpper(strings.TrimSpace(req.Personal.PANNumber)),
+		"personal.dob":                        strings.TrimSpace(req.Personal.DOB),
+		"personal.phone":                      phone,
+		"personal.email":                      strings.ToLower(strings.TrimSpace(req.Personal.Email)),
+		"personal.full_address":               strings.TrimSpace(req.Personal.FullAddress),
+		"financial.monthly_income":            req.Agreement.MonthlyIncome,
+		"financial.lenders":                   lenders,
+		"financial.total_outstanding_amount":  totalOutstanding,
+		"agreement.duration":                  duration,
+		"agreement.resolution_duration":       resolutionDuration,
+		"agreement.consulting_fees":           req.Agreement.ConsultingFees,
+		"agreement.start_date":                req.Agreement.StartDate,
+		"agreement.executed_date":             req.Agreement.ExecutedDate,
+		"agreement.prepared_by":               &preparedByID,
+		"agreement.prepared_by_name":          preparedByName,
+		"updated_at":                          now,
 	}
 
-	if _, err := col.UpdateOne(c.Request.Context(), filter, bson.M{"$set": setFields}); err != nil {
+	res, err := col.UpdateOne(ctx, filter, bson.M{"$set": setFields})
+	if err != nil {
 		log.Printf("[ERROR] [AgreementCreate] Update failed: %v", err)
 		response.InternalServerError(c, "Failed to save agreement")
+		return
+	}
+	if res.MatchedCount == 0 {
+		response.NotFound(c, "Lead not found")
 		return
 	}
 

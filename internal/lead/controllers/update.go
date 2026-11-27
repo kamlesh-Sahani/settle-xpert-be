@@ -44,9 +44,10 @@ type FinancialUpdateInput struct {
 }
 
 type AgreementUpdateInput struct {
-	Duration       *string    `json:"duration" binding:"omitempty,max=80"`
-	ConsultingFees *float64   `json:"consultingFees" binding:"omitempty,gte=0"`
-	ExecutedDate   *time.Time `json:"executedDate"`
+	Duration           *string    `json:"duration" binding:"omitempty,max=80"`
+	ResolutionDuration *string    `json:"resolutionDuration" binding:"omitempty,max=80"`
+	ConsultingFees     *float64   `json:"consultingFees" binding:"omitempty,gte=0"`
+	ExecutedDate       *time.Time `json:"executedDate"`
 }
 
 type UpdateLeadRequest struct {
@@ -227,6 +228,9 @@ func Update(c *gin.Context) {
 	if req.Agreement != nil {
 		if req.Agreement.Duration != nil {
 			setFields["agreement.duration"] = strings.TrimSpace(*req.Agreement.Duration)
+		}
+		if req.Agreement.ResolutionDuration != nil {
+			setFields["agreement.resolution_duration"] = strings.TrimSpace(*req.Agreement.ResolutionDuration)
 		}
 		if req.Agreement.ConsultingFees != nil {
 			setFields["agreement.consulting_fees"] = *req.Agreement.ConsultingFees

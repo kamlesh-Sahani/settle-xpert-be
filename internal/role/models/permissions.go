@@ -71,7 +71,7 @@ var AvailablePermissions = []PermissionGroup{
 			{
 				ID:          "agreement:read",
 				Title:       "View Agreement & PDF",
-				Description: "Can access the Agreement page, view template, and generate agreement PDFs",
+				Description: "Can access the Agreement page and generate agreement PDFs",
 				Category:    "Agreements",
 			},
 			{
@@ -81,9 +81,9 @@ var AvailablePermissions = []PermissionGroup{
 				Category:    "Agreements",
 			},
 			{
-				ID:          "agreement:template",
-				Title:       "Manage Agreement Template",
-				Description: "Can edit and update the master consultancy agreement template",
+				ID:          "agreement:template_update",
+				Title:       "Update Agreement Template",
+				Description: "Can update the default agreement body and footer templates",
 				Category:    "Agreements",
 			},
 		},

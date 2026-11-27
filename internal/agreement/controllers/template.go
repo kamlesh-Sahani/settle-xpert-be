@@ -7,108 +7,123 @@ import (
 	"time"
 
 	"lead-crm/backend/database"
+	"lead-crm/backend/internal/agreement/models"
 	"lead-crm/backend/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kamlesh-Sahani/go-commons/response"
-	commonsutils "github.com/kamlesh-Sahani/go-commons/utils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-const defaultAgreementTemplateKey = "default"
-
-type AgreementTemplate struct {
-	ID            primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
-	Key           string              `bson:"key" json:"key"`
-	Body          string              `bson:"body" json:"body"`
-	UpdatedBy     *primitive.ObjectID `bson:"updated_by,omitempty" json:"updatedBy,omitempty"`
-	UpdatedByName string              `bson:"updated_by_name,omitempty" json:"updatedByName,omitempty"`
-	UpdatedAt     time.Time           `bson:"updated_at" json:"updatedAt"`
+type UpdateAgreementTemplateRequest struct {
+	Body   *string `json:"body"`
+	Footer *string `json:"footer"`
 }
 
-type SaveAgreementTemplateRequest struct {
-	Body string `json:"body" binding:"required,max=100000"`
-}
-
-// GetTemplate returns the saved master agreement body template.
+// GetTemplate returns the stored agreement body and footer templates, seeding defaults on first access.
 func GetTemplate(c *gin.Context) {
-	col := database.GetCollection("agreement_templates")
+	col := database.GetCollection(models.AgreementTemplateCollection)
 	if col == nil {
 		response.InternalServerError(c, "Database service unavailable")
 		return
 	}
+	ctx := c.Request.Context()
+	filter := bson.M{"key": models.DefaultAgreementTemplateKey}
 
-	var tpl AgreementTemplate
-	err := col.FindOne(c.Request.Context(), bson.M{"key": defaultAgreementTemplateKey}).Decode(&tpl)
+	var tpl models.AgreementTemplate
+	err := col.FindOne(ctx, filter).Decode(&tpl)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			response.Success(c, "Agreement template retrieved", gin.H{
-				"key":  defaultAgreementTemplateKey,
-				"body": "",
+			response.Success(c, "Agreement template fetched successfully", gin.H{
+				"body":   "",
+				"footer": "",
 			})
 			return
 		}
-		log.Printf("[ERROR] [AgreementTemplateGet] Lookup failed: %v", err)
-		response.InternalServerError(c, "Failed to load agreement template")
+		log.Printf("[ERROR] [AgreementGetTemplate] FindOne failed: %v", err)
+		response.InternalServerError(c, "Failed to fetch agreement template")
 		return
 	}
 
-	response.Success(c, "Agreement template retrieved", tpl)
+	response.Success(c, "Agreement template fetched successfully", gin.H{
+		"body":   tpl.Body,
+		"footer": tpl.Footer,
+	})
 }
 
-// SaveTemplate upserts the master agreement body template for future PDF generation.
-func SaveTemplate(c *gin.Context) {
-	var req SaveAgreementTemplateRequest
+// UpdateTemplate updates the agreement body, footer, or both in the database.
+func UpdateTemplate(c *gin.Context) {
+	emp, ok := utils.GetAuthEmployee(c)
+	if !ok || emp == nil {
+		response.Unauthorized(c, "Unauthorized")
+		return
+	}
+	updatedByID, err := primitive.ObjectIDFromHex(strings.TrimSpace(emp.EmployeeID))
+	if err != nil || updatedByID.IsZero() {
+		response.Unauthorized(c, "Invalid authenticated employee")
+		return
+	}
+
+	var req UpdateAgreementTemplateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, commonsutils.FormatValidationError(err))
+		response.BadRequest(c, "Invalid request payload")
+		return
+	}
+	if req.Body == nil && req.Footer == nil {
+		response.BadRequest(c, "At least one of body or footer must be provided")
 		return
 	}
 
-	trimmedBody := strings.TrimSpace(req.Body)
-	if trimmedBody == "" {
-		response.BadRequest(c, "Agreement body cannot be empty")
-		return
+	now := time.Now().UTC()
+	setFields := bson.M{
+		"updatedBy": &updatedByID,
+		"updatedAt": now,
+	}
+	setOnInsert := bson.M{
+		"key":       models.DefaultAgreementTemplateKey,
+		"createdAt": now,
 	}
 
-	col := database.GetCollection("agreement_templates")
+	if req.Body != nil {
+		setFields["body"] = *req.Body
+	} else {
+		setOnInsert["body"] = ""
+	}
+
+	if req.Footer != nil {
+		setFields["footer"] = *req.Footer
+	} else {
+		setOnInsert["footer"] = ""
+	}
+
+	col := database.GetCollection(models.AgreementTemplateCollection)
 	if col == nil {
 		response.InternalServerError(c, "Database service unavailable")
 		return
 	}
+	ctx := c.Request.Context()
+	opts := options.FindOneAndUpdate().
+		SetUpsert(true).
+		SetReturnDocument(options.After)
 
-	var updatedByID *primitive.ObjectID
-	updatedByName := "System"
-	if emp, ok := utils.GetAuthEmployee(c); ok && emp != nil {
-		updatedByName = emp.Name
-		if oid, err := primitive.ObjectIDFromHex(emp.EmployeeID); err == nil && !oid.IsZero() {
-			updatedByID = &oid
-		}
-	}
-
-	now := time.Now().UTC()
-	update := bson.M{
-		"$set": bson.M{
-			"key":             defaultAgreementTemplateKey,
-			"body":            req.Body,
-			"updated_by":      updatedByID,
-			"updated_by_name": updatedByName,
-			"updated_at":      now,
+	var updated models.AgreementTemplate
+	err = col.FindOneAndUpdate(
+		ctx,
+		bson.M{"key": models.DefaultAgreementTemplateKey},
+		bson.M{
+			"$set":         setFields,
+			"$setOnInsert": setOnInsert,
 		},
-	}
-
-	opts := options.Update().SetUpsert(true)
-	if _, err := col.UpdateOne(c.Request.Context(), bson.M{"key": defaultAgreementTemplateKey}, update, opts); err != nil {
-		log.Printf("[ERROR] [AgreementTemplateSave] Upsert failed: %v", err)
-		response.InternalServerError(c, "Failed to save agreement template")
+		opts,
+	).Decode(&updated)
+	if err != nil {
+		log.Printf("[ERROR] [AgreementUpdateTemplate] FindOneAndUpdate failed: %v", err)
+		response.InternalServerError(c, "Failed to update agreement template")
 		return
 	}
 
-	response.Success(c, "Agreement body template saved successfully", gin.H{
-		"key":           defaultAgreementTemplateKey,
-		"updatedByName": updatedByName,
-		"updatedAt":     now,
-	})
+	response.Success(c, "Agreement template updated successfully", nil)
 }

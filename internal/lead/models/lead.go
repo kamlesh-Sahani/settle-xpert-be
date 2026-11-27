@@ -98,8 +98,9 @@ type FinancialInfo struct {
 }
 
 type AgreementInfo struct {
-	Duration       string              `bson:"duration,omitempty" json:"duration,omitempty" binding:"omitempty,max=80"`
-	ConsultingFees float64             `bson:"consulting_fees,omitempty" json:"consultingFees,omitempty" binding:"omitempty,gte=0"`
+	Duration           string              `bson:"duration,omitempty" json:"duration,omitempty" binding:"omitempty,max=80"`
+	ResolutionDuration string              `bson:"resolution_duration,omitempty" json:"resolutionDuration,omitempty" binding:"omitempty,max=80"`
+	ConsultingFees     float64             `bson:"consulting_fees,omitempty" json:"consultingFees,omitempty" binding:"omitempty,gte=0"`
 	StartDate      *time.Time          `bson:"start_date,omitempty" json:"startDate,omitempty"`
 	ExecutedDate   *time.Time          `bson:"executed_date,omitempty" json:"executedDate,omitempty"`
 	PreparedBy     *primitive.ObjectID `bson:"prepared_by,omitempty" json:"preparedBy,omitempty"`

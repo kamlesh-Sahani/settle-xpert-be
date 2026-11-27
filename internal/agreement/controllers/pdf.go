@@ -9,12 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"lead-crm/backend/database"
+	"lead-crm/backend/internal/agreement/models"
 	leadmodels "lead-crm/backend/internal/lead/models"
 	"lead-crm/backend/utils"
 
@@ -25,6 +25,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	xhtml "golang.org/x/net/html"
 )
 
 const (
@@ -35,9 +36,8 @@ const (
 )
 
 var (
-	durationDigitsRe  = regexp.MustCompile(`(\d+)`)
-	numberedSectionRe = regexp.MustCompile(`^\d+\.\s+[A-Z]`)
-	subItemRe         = regexp.MustCompile(`^([a-z]\.\s+)(.*)$`)
+	durationDigitsRe = regexp.MustCompile(`(\d+)`)
+	htmlTagRe        = regexp.MustCompile(`<[^>]*>`)
 )
 
 type rgbColor struct {
@@ -57,14 +57,20 @@ var (
 )
 
 type textSegment struct {
-	text  string
-	bold  bool
-	color *rgbColor
+	text      string
+	bold      bool
+	italic    bool
+	underline bool
+	color     *rgbColor
 }
 
 type pdfFontConfig struct {
 	family  string
 	unicode bool
+}
+
+type GenerateAgreementPDFRequest struct {
+	LeadID string `json:"leadId" binding:"required,max=24"`
 }
 
 func resolveAssetPath(rel string) string {
@@ -121,34 +127,6 @@ func configurePDFFonts(pdf *fpdf.Fpdf) pdfFontConfig {
 	return pdfFontConfig{family: "Helvetica", unicode: false}
 }
 
-type PreviewTemplatePDFRequest struct {
-	Body string `json:"body" binding:"required"`
-}
-
-type GeneratePDFPersonalInput struct {
-	FullName    string `json:"fullName"`
-	PANNumber   string `json:"panNumber"`
-	DOB         string `json:"dob"`
-	Phone       string `json:"phone"`
-	Email       string `json:"email"`
-	FullAddress string `json:"fullAddress"`
-}
-
-type GeneratePDFDetailsInput struct {
-	Duration       string     `json:"duration"`
-	ConsultingFees float64    `json:"consultingFees"`
-	StartDate      *time.Time `json:"startDate"`
-	ExecutedDate   *time.Time `json:"executedDate"`
-	MonthlyIncome  float64    `json:"monthlyIncome"`
-}
-
-type GenerateAgreementPDFRequest struct {
-	LeadID    string                   `json:"leadId" binding:"required,max=24"`
-	Personal  GeneratePDFPersonalInput `json:"personal"`
-	Lenders   []leadmodels.Lender      `json:"lenders"`
-	Agreement GeneratePDFDetailsInput  `json:"agreement"`
-}
-
 func cleanText(cfg pdfFontConfig, s string) string {
 	if cfg.unicode {
 		return s
@@ -156,7 +134,11 @@ func cleanText(cfg pdfFontConfig, s string) string {
 	return sanitizeForLatin1PDF(s)
 }
 
-// GeneratePDF renders the saved Agreement Template and structured Annexures A-D into an A4 PDF on the backend.
+func stripHTMLTags(s string) string {
+	return htmlTagRe.ReplaceAllString(s, " ")
+}
+
+// GeneratePDF renders the agreement PDF for a lead using saved lead data and DB agreement templates.
 func GeneratePDF(c *gin.Context) {
 	var rawReq GenerateAgreementPDFRequest
 	if err := c.ShouldBindJSON(&rawReq); err != nil {
@@ -164,77 +146,99 @@ func GeneratePDF(c *gin.Context) {
 		return
 	}
 
-	req := CreateAgreementRequest{
-		LeadID:  rawReq.LeadID,
-		Lenders: rawReq.Lenders,
-		Personal: AgreementPersonalInput{
-			FullName:    rawReq.Personal.FullName,
-			PANNumber:   rawReq.Personal.PANNumber,
-			DOB:         rawReq.Personal.DOB,
-			Phone:       rawReq.Personal.Phone,
-			Email:       rawReq.Personal.Email,
-			FullAddress: rawReq.Personal.FullAddress,
-		},
-		Agreement: AgreementDetailsInput{
-			Duration:       rawReq.Agreement.Duration,
-			ConsultingFees: rawReq.Agreement.ConsultingFees,
-			StartDate:      rawReq.Agreement.StartDate,
-			ExecutedDate:   rawReq.Agreement.ExecutedDate,
-			MonthlyIncome:  rawReq.Agreement.MonthlyIncome,
-		},
-	}
-
-	leadObjID, err := primitive.ObjectIDFromHex(strings.TrimSpace(req.LeadID))
+	leadObjID, err := primitive.ObjectIDFromHex(strings.TrimSpace(rawReq.LeadID))
 	if err != nil || leadObjID.IsZero() {
 		response.BadRequest(c, "Invalid lead ID format")
 		return
 	}
 
-	ctx := c.Request.Context()
-
-	tplCol := database.GetCollection("agreement_templates")
-	if tplCol == nil {
+	leadCol := database.GetCollection("leads")
+	tplCol := database.GetCollection(models.AgreementTemplateCollection)
+	if leadCol == nil || tplCol == nil {
 		response.InternalServerError(c, "Database service unavailable")
 		return
 	}
 
-	var tpl AgreementTemplate
-	if err := tplCol.FindOne(ctx, bson.M{"key": defaultAgreementTemplateKey}).Decode(&tpl); err != nil {
+	ctx := c.Request.Context()
+	var existing leadmodels.Lead
+	if err := leadCol.FindOne(
+		ctx,
+		bson.M{"_id": leadObjID, "deleted_at": bson.M{"$exists": false}},
+	).Decode(&existing); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			response.BadRequest(c, "Please configure and save the Agreement Template first")
+			response.NotFound(c, "Lead not found")
 			return
 		}
-		log.Printf("[ERROR] [AgreementPDF] Template lookup failed: %v", err)
-		response.InternalServerError(c, "Failed to load agreement template")
-		return
-	}
-	if strings.TrimSpace(tpl.Body) == "" {
-		response.BadRequest(c, "Please configure and save the Agreement Template first")
+		log.Printf("[ERROR] [AgreementPDF] FindOne lead failed: %v", err)
+		response.InternalServerError(c, "Failed to retrieve lead")
 		return
 	}
 
-	leadCol := database.GetCollection("leads")
-	var existing leadmodels.Lead
-	if leadCol != nil {
-		_ = leadCol.FindOne(ctx, bson.M{"_id": leadObjID, "deleted_at": bson.M{"$exists": false}}).Decode(&existing)
+	var tpl models.AgreementTemplate
+	if err := tplCol.FindOne(
+		ctx,
+		bson.M{"key": models.DefaultAgreementTemplateKey},
+	).Decode(&tpl); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			response.BadRequest(c, "Agreement template not found. Please save a template first.")
+			return
+		}
+		log.Printf("[ERROR] [AgreementPDF] FindOne template failed: %v", err)
+		response.InternalServerError(c, "Failed to retrieve agreement template")
+		return
+	}
+	if strings.TrimSpace(stripHTMLTags(tpl.Body)) == "" {
+		response.BadRequest(c, "Agreement body template cannot be empty")
+		return
 	}
 
+	var lenders []leadmodels.Lender
+	var monthlyIncome float64
+	if existing.Financial != nil {
+		lenders = existing.Financial.Lenders
+		monthlyIncome = existing.Financial.MonthlyIncome
+	}
+
+	var agreementDetails AgreementDetailsInput
+	agreementDetails.MonthlyIncome = monthlyIncome
 	preparedBy := ""
-	if existing.Agreement != nil && strings.TrimSpace(existing.Agreement.PreparedByName) != "" {
-		preparedBy = existing.Agreement.PreparedByName
-	} else if emp, ok := utils.GetAuthEmployee(c); ok && emp != nil {
-		preparedBy = emp.Name
+	if existing.Agreement != nil {
+		agreementDetails.Duration = existing.Agreement.Duration
+		agreementDetails.ResolutionDuration = existing.Agreement.ResolutionDuration
+		agreementDetails.ConsultingFees = existing.Agreement.ConsultingFees
+		agreementDetails.StartDate = existing.Agreement.StartDate
+		agreementDetails.ExecutedDate = existing.Agreement.ExecutedDate
+		preparedBy = strings.TrimSpace(existing.Agreement.PreparedByName)
+	}
+	if preparedBy == "" {
+		if emp, ok := utils.GetAuthEmployee(c); ok && emp != nil {
+			preparedBy = emp.Name
+		}
 	}
 
 	now := time.Now().Local()
-	if req.Agreement.ExecutedDate == nil || req.Agreement.ExecutedDate.IsZero() {
-		req.Agreement.ExecutedDate = &now
+	if agreementDetails.ExecutedDate == nil || agreementDetails.ExecutedDate.IsZero() {
+		agreementDetails.ExecutedDate = &now
 	}
-	if req.Agreement.StartDate == nil || req.Agreement.StartDate.IsZero() {
-		req.Agreement.StartDate = req.Agreement.ExecutedDate
+	if agreementDetails.StartDate == nil || agreementDetails.StartDate.IsZero() {
+		agreementDetails.StartDate = agreementDetails.ExecutedDate
 	}
 
-	buf, err := buildAgreementPDFBytes(tpl.Body, req, preparedBy)
+	req := CreateAgreementRequest{
+		LeadID:  rawReq.LeadID,
+		Lenders: lenders,
+		Personal: AgreementPersonalInput{
+			FullName:    existing.Personal.FullName,
+			PANNumber:   existing.Personal.PANNumber,
+			DOB:         existing.Personal.DOB,
+			Phone:       existing.Personal.Phone,
+			Email:       existing.Personal.Email,
+			FullAddress: existing.Personal.FullAddress,
+		},
+		Agreement: agreementDetails,
+	}
+
+	buf, err := buildAgreementPDFBytes(tpl.Body, tpl.Footer, req, preparedBy)
 	if err != nil {
 		log.Printf("[ERROR] [AgreementPDF] PDF render failed: %v", err)
 		response.InternalServerError(c, "Failed to generate PDF")
@@ -247,64 +251,11 @@ func GeneratePDF(c *gin.Context) {
 	}
 
 	c.Header("Content-Type", "application/pdf")
-	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.Header("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, filename))
 	c.Data(http.StatusOK, "application/pdf", buf)
 }
 
-// PreviewTemplatePDF renders a draft or saved Agreement Template with representative sample data for in-modal preview.
-func PreviewTemplatePDF(c *gin.Context) {
-	var req PreviewTemplatePDFRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, commonsutils.FormatValidationError(err))
-		return
-	}
-	if strings.TrimSpace(req.Body) == "" {
-		response.BadRequest(c, "Agreement template cannot be empty")
-		return
-	}
-
-	preparedBy := "SettleXpert Consultant"
-	if emp, ok := utils.GetAuthEmployee(c); ok && emp != nil && strings.TrimSpace(emp.Name) != "" {
-		preparedBy = emp.Name
-	}
-
-	now := time.Now().Local()
-	sampleReq := CreateAgreementRequest{
-		Personal: AgreementPersonalInput{
-			FullName:    "SANCHITA CHATTERJEE",
-			PANNumber:   "BTWPC6838E",
-			DOB:         "1990-01-01",
-			Phone:       "+91 70441 18629",
-			Email:       "acsanchita@gmail.com",
-			FullAddress: "C/O Arka Chatterjee, 17/A, Ram Ratan Bose Lane, Deshbondhu Park, Shyambazar, Kolkata, West Bengal - 700004",
-		},
-		Lenders: []leadmodels.Lender{
-			{LenderName: "HDFC Bank", LoanType: "Personal Loan", OutstandingAmount: 150000},
-			{LenderName: "ICICI Bank", LoanType: "Credit Card", OutstandingAmount: 80000},
-		},
-		Agreement: AgreementDetailsInput{
-			Duration:       "6 Months",
-			ConsultingFees: 7500,
-			StartDate:      &now,
-			ExecutedDate:   &now,
-			MonthlyIncome:  45000,
-		},
-	}
-
-	buf, err := buildAgreementPDFBytes(req.Body, sampleReq, preparedBy)
-	if err != nil {
-		log.Printf("[ERROR] [AgreementPDFPreview] PDF render failed: %v", err)
-		response.InternalServerError(c, "Failed to generate PDF preview")
-		return
-	}
-
-	c.Header("Content-Type", "application/pdf")
-	c.Header("Content-Disposition", `inline; filename="Agreement_Template_Preview.pdf"`)
-	c.Data(http.StatusOK, "application/pdf", buf)
-}
-
-func buildAgreementPDFBytes(templateBody string, req CreateAgreementRequest, preparedBy string) ([]byte, error) {
-	mainBody := extractMainAgreementBody(templateBody)
+func buildAgreementPDFBytes(templateBody, templateFooter string, req CreateAgreementRequest, preparedBy string) ([]byte, error) {
 	replacements := buildPlaceholderReplacements(req, preparedBy)
 	logoPath := resolveLogoPath()
 
@@ -318,25 +269,11 @@ func buildAgreementPDFBytes(templateBody string, req CreateAgreementRequest, pre
 		renderPDFHeader(pdf, fontCfg, logoPath)
 	})
 	pdf.SetFooterFunc(func() {
-		renderPDFFooter(pdf, fontCfg)
+		renderPDFFooter(pdf, fontCfg, templateFooter, replacements)
 	})
 
-	// Main Consultancy Agreement
 	pdf.AddPage()
-	renderMainAgreementLines(pdf, fontCfg, mainBody, replacements)
-	renderSignatureBlock(pdf, fontCfg, req.Personal.FullName)
-
-	// Annexure A
-	pdf.AddPage()
-	renderAnnexureA(pdf, fontCfg, req)
-
-	// Annexure B
-	pdf.AddPage()
-	renderAnnexureB(pdf, fontCfg, req, preparedBy)
-
-	// Annexure C & D
-	pdf.AddPage()
-	renderAnnexureCD(pdf, fontCfg, req)
+	renderHTMLAgreementBody(pdf, fontCfg, templateBody, replacements, req)
 
 	var buf bytes.Buffer
 	if err := pdf.Output(&buf); err != nil {
@@ -402,8 +339,7 @@ func renderRightAlignedSegments(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, rightX, y
 		pdf.SetFont(fontCfg.family, style, size)
 		totalW += pdf.GetStringWidth(s.text)
 	}
-	curX := rightX - totalW
-	pdf.SetXY(curX, y)
+	pdf.SetXY(rightX-totalW, y)
 	for _, s := range segs {
 		style := ""
 		if s.bold {
@@ -420,336 +356,381 @@ func renderRightAlignedSegments(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, rightX, y
 	}
 }
 
-func renderPDFFooter(pdf *fpdf.Fpdf, fontCfg pdfFontConfig) {
+func parseWrappedHTML(raw string) *xhtml.Node {
+	doc, err := xhtml.Parse(strings.NewReader("<div>" + raw + "</div>"))
+	if err != nil {
+		return nil
+	}
+	var root *xhtml.Node
+	var findRoot func(*xhtml.Node)
+	findRoot = func(n *xhtml.Node) {
+		if n.Type == xhtml.ElementNode && n.Data == "div" {
+			root = n
+			return
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			findRoot(c)
+			if root != nil {
+				return
+			}
+		}
+	}
+	findRoot(doc)
+	return root
+}
+
+func extractNodeAlign(n *xhtml.Node, fallback string) string {
+	for _, a := range n.Attr {
+		if strings.EqualFold(a.Key, "style") {
+			low := strings.ToLower(a.Val)
+			if strings.Contains(low, "text-align") {
+				if strings.Contains(low, "center") {
+					return "C"
+				}
+				if strings.Contains(low, "right") {
+					return "R"
+				}
+				if strings.Contains(low, "justify") {
+					return "J"
+				}
+				if strings.Contains(low, "left") {
+					return "L"
+				}
+			}
+		}
+	}
+	return fallback
+}
+
+func replacePlaceholders(cfg pdfFontConfig, text string, replacements map[string]string, pageNo int) string {
+	out := text
+	if pageNo > 0 {
+		out = strings.ReplaceAll(out, "{{page}}", strconv.Itoa(pageNo))
+		out = strings.ReplaceAll(out, "{{totalPages}}", "{nb}")
+	}
+	for token, val := range replacements {
+		if strings.Contains(out, token) {
+			out = strings.ReplaceAll(out, token, val)
+		}
+	}
+	return cleanText(cfg, out)
+}
+
+func collectInlineHTML(cfg pdfFontConfig, n *xhtml.Node, b, it, u bool, defaultColor *rgbColor, replacements map[string]string, pageNo int, out *[]textSegment) {
+	switch n.Type {
+	case xhtml.TextNode:
+		txt := strings.ReplaceAll(n.Data, "\u00a0", " ")
+		if txt == "" {
+			return
+		}
+		*out = append(*out, textSegment{
+			text:      replacePlaceholders(cfg, txt, replacements, pageNo),
+			bold:      b,
+			italic:    it,
+			underline: u,
+			color:     defaultColor,
+		})
+	case xhtml.ElementNode:
+		nb, nit, nu := b, it, u
+		switch strings.ToLower(n.Data) {
+		case "strong", "b":
+			nb = true
+		case "em", "i":
+			nit = true
+		case "u":
+			nu = true
+		case "br":
+			*out = append(*out, textSegment{text: "\n"})
+			return
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			collectInlineHTML(cfg, c, nb, nit, nu, defaultColor, replacements, pageNo, out)
+		}
+	}
+}
+
+func renderPDFFooter(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, templateFooter string, replacements map[string]string) {
+	footerPlain := strings.TrimSpace(stripHTMLTags(templateFooter))
+	if footerPlain == "" {
+		return
+	}
+
 	pdf.SetY(-15)
 	pdf.SetDrawColor(colorBorder.r, colorBorder.g, colorBorder.b)
 	pdf.SetLineWidth(0.25)
 	pdf.Line(pageMarginL, 281, 210.0-pageMarginR, 281)
 	pdf.SetY(282.5)
-	pdf.SetFont(fontCfg.family, "", 7.8)
-	pdf.SetTextColor(colorSlate500.r, colorSlate500.g, colorSlate500.b)
-	footerText := cleanText(fontCfg, fmt.Sprintf("Email: info@settlexpert.com | Phone: +91 89292 23949 | Website: www.settlexpert.com  •  Page %d of {nb}", pdf.PageNo()))
-	pdf.CellFormat(0, 5.5, footerText, "", 0, "C", false, 0, "")
-}
 
-func extractMainAgreementBody(template string) string {
-	normalized := strings.ReplaceAll(template, "\r\n", "\n")
-	lines := strings.Split(normalized, "\n")
-
-	// Skip duplicate leading letterhead lines above CONSULTANCY AGREEMENT if present near top.
-	startIdx := 0
-	for i := 0; i < len(lines) && i < 25; i++ {
-		if strings.EqualFold(strings.TrimSpace(lines[i]), "CONSULTANCY AGREEMENT") {
-			startIdx = i
-			break
-		}
+	root := parseWrappedHTML(templateFooter)
+	if root == nil {
+		pdf.SetFont(fontCfg.family, "", 7.8)
+		pdf.SetTextColor(colorSlate500.r, colorSlate500.g, colorSlate500.b)
+		pdf.CellFormat(pageContentW, 4.4, replacePlaceholders(fontCfg, footerPlain, replacements, pdf.PageNo()), "", 0, "C", false, 0, "")
+		return
 	}
 
-	endIdx := len(lines)
-	for i := startIdx; i < len(lines); i++ {
-		upper := strings.ToUpper(strings.TrimSpace(lines[i]))
-		if upper == "" {
-			continue
-		}
-		if strings.HasPrefix(upper, "ANNEXURE A") ||
-			strings.HasPrefix(upper, "ANNEXURE - A") ||
-			upper == "FIRST PARTY" ||
-			strings.HasPrefix(upper, "FIRST PARTY ") ||
-			strings.HasPrefix(upper, "FIRST PARTY\t") {
-			endIdx = i
-			break
-		}
-	}
-
-	// Trim trailing separator lines (==== or blank lines) right before signature/Annexure A.
-	for endIdx > startIdx {
-		prev := strings.TrimSpace(lines[endIdx-1])
-		if prev == "" || strings.HasPrefix(prev, "====") || strings.HasPrefix(prev, "----") {
-			endIdx--
-			continue
-		}
-		break
-	}
-
-	return strings.TrimSpace(strings.Join(lines[startIdx:endIdx], "\n"))
-}
-
-func renderMainAgreementLines(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, body string, replacements map[string]string) {
-	lines := strings.Split(body, "\n")
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			pdf.Ln(2.5)
-			continue
-		}
-		if strings.HasPrefix(trimmed, "====") {
-			continue
-		}
-
-		switch {
-		case strings.EqualFold(trimmed, "CONSULTANCY AGREEMENT"):
-			renderCenteredUnderlinedTitle(pdf, fontCfg, "CONSULTANCY AGREEMENT", 13)
-			pdf.Ln(3)
-
-		case numberedSectionRe.MatchString(trimmed):
-			if pdf.GetY() > 252 {
-				pdf.AddPage()
-			}
-			pdf.Ln(2.5)
-			pdf.SetX(pageMarginL)
-			pdf.SetFont(fontCfg.family, "B", 10.8)
-			pdf.SetTextColor(colorSlate900.r, colorSlate900.g, colorSlate900.b)
-			pdf.MultiCell(pageContentW, 5.6, cleanText(fontCfg, trimmed), "", "L", false)
-			pdf.Ln(1.2)
-
-		case strings.HasPrefix(trimmed, "NOW THIS AGREEMENT WITNESSETH"):
-			if pdf.GetY() > 260 {
-				pdf.AddPage()
-			}
-			pdf.Ln(2.5)
-			pdf.SetX(pageMarginL)
-			pdf.SetFont(fontCfg.family, "B", 10.2)
-			pdf.SetTextColor(colorSlate900.r, colorSlate900.g, colorSlate900.b)
-			pdf.MultiCell(pageContentW, 5.5, cleanText(fontCfg, trimmed), "", "C", false)
-			pdf.Ln(2)
-
-		case strings.EqualFold(trimmed, "AND"):
-			pdf.Ln(1)
-			pdf.SetX(pageMarginL)
-			pdf.SetFont(fontCfg.family, "B", 10.2)
-			pdf.SetTextColor(colorSlate900.r, colorSlate900.g, colorSlate900.b)
-			pdf.MultiCell(pageContentW, 5.4, "AND", "", "L", false)
-			pdf.Ln(1)
-
-		case strings.HasPrefix(trimmed, "- "):
-			bulletChar := cleanText(fontCfg, "•")
-			itemText := strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))
-			if pdf.GetY() > 270 {
-				pdf.AddPage()
-			}
-			y := pdf.GetY()
-			pdf.SetFont(fontCfg.family, "B", 10)
-			pdf.SetTextColor(colorSlate900.r, colorSlate900.g, colorSlate900.b)
-			pdf.SetXY(pageMarginL+6, y)
-			pdf.CellFormat(4.5, 5.4, bulletChar, "", 0, "L", false, 0, "")
-			segs := buildRichParagraphSegments(fontCfg, itemText, replacements)
-			renderRichWrappedText(pdf, fontCfg, pageMarginL+10.5, pageContentW-10.5, 5.4, 10, segs)
-			pdf.Ln(1.5)
-
-		case subItemRe.MatchString(trimmed):
-			m := subItemRe.FindStringSubmatch(trimmed)
-			segs := []textSegment{
-				{text: m[1], bold: true, color: &colorSlate900},
-			}
-			segs = append(segs, buildRichParagraphSegments(fontCfg, m[2], replacements)...)
-			renderRichWrappedText(pdf, fontCfg, pageMarginL+5, pageContentW-5, 5.4, 10, segs)
-			pdf.Ln(1.5)
-
-		case strings.HasPrefix(trimmed, "Grievance & Escalation Email:"):
-			rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "Grievance & Escalation Email:"))
-			segs := []textSegment{
-				{text: "Grievance & Escalation Email:", bold: true, color: &colorSlate900},
-			}
-			if rest != "" {
-				renderRichWrappedText(pdf, fontCfg, pageMarginL, pageContentW, 5.4, 10, segs)
-				pdf.Ln(0.8)
-				emailSeg := []textSegment{{text: cleanText(fontCfg, rest), bold: true, color: &colorGreen700}}
-				renderRichWrappedText(pdf, fontCfg, pageMarginL, pageContentW, 5.4, 10, emailSeg)
-			} else {
-				renderRichWrappedText(pdf, fontCfg, pageMarginL, pageContentW, 5.4, 10, segs)
-			}
-			pdf.Ln(1.5)
-
-		case strings.EqualFold(trimmed, "info@settlexpert.com"):
-			renderRichWrappedText(pdf, fontCfg, pageMarginL, pageContentW, 5.4, 10, []textSegment{
-				{text: "info@settlexpert.com", bold: true, color: &colorGreen700},
-			})
-			pdf.Ln(1.5)
-
-		default:
-			segs := buildRichParagraphSegments(fontCfg, trimmed, replacements)
-			renderRichWrappedText(pdf, fontCfg, pageMarginL, pageContentW, 5.4, 10, segs)
-			pdf.Ln(1.8)
-		}
-	}
-}
-
-func buildRichParagraphSegments(cfg pdfFontConfig, line string, replacements map[string]string) []textSegment {
-	// First substitute {{placeholders}} while recording their values as bold segments
-	var segs []textSegment
-	cur := line
-	for len(cur) > 0 {
-		earliestIdx := -1
-		earliestToken := ""
-		for token := range replacements {
-			if idx := strings.Index(cur, token); idx != -1 && (earliestIdx == -1 || idx < earliestIdx) {
-				earliestIdx = idx
-				earliestToken = token
-			}
-		}
-		if earliestIdx == -1 {
-			segs = append(segs, splitKeyLegalBold(cfg, cur)...)
-			break
-		}
-		if earliestIdx > 0 {
-			segs = append(segs, splitKeyLegalBold(cfg, cur[:earliestIdx])...)
-		}
-		val := cleanText(cfg, replacements[earliestToken])
-		segs = append(segs, textSegment{text: val, bold: true, color: &colorSlate900})
-		cur = cur[earliestIdx+len(earliestToken):]
-	}
-
-	return segs
-}
-
-func splitKeyLegalBold(cfg pdfFontConfig, chunk string) []textSegment {
-	boldPhrases := []string{
-		"M/s. SettleXpert LLP",
-		"CB-201, Naraina Vihar, Ring Road, New Delhi, Delhi, India",
-		`"First Party"`,
-		`"Company"`,
-		`"Second Party"`,
-		`"Client"`,
-		`"Parties"`,
-		`"Party"`,
-		"NOW, THEREFORE,",
-		"WHEREAS,",
-		"Annexure A",
-		"Annexure B & C",
-		"Annexure B",
-	}
-
-	// Sort longest first so longer matches take precedence
-	sort.SliceStable(boldPhrases, func(i, j int) bool {
-		return len(boldPhrases[i]) > len(boldPhrases[j])
-	})
-
-	var out []textSegment
-	remaining := chunk
-	for len(remaining) > 0 {
-		earliestIdx := -1
-		matched := ""
-		for _, phrase := range boldPhrases {
-			if idx := strings.Index(remaining, phrase); idx != -1 && (earliestIdx == -1 || idx < earliestIdx) {
-				earliestIdx = idx
-				matched = phrase
-			}
-		}
-		if earliestIdx == -1 {
-			out = append(out, textSegment{text: cleanText(cfg, remaining), color: &colorSlate800})
-			break
-		}
-		if earliestIdx > 0 {
-			out = append(out, textSegment{text: cleanText(cfg, remaining[:earliestIdx]), color: &colorSlate800})
-		}
-		out = append(out, textSegment{text: cleanText(cfg, matched), bold: true, color: &colorSlate900})
-		remaining = remaining[earliestIdx+len(matched):]
-	}
-	return out
-}
-
-// renderRichWrappedText wraps mixed Regular/Bold segments across lines cleanly without overlapping or mid-word breaks.
-func renderRichWrappedText(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, x, maxW, lineH, fontSize float64, segs []textSegment) {
-	type wordToken struct {
-		text  string
-		bold  bool
-		color rgbColor
-		space bool
-	}
-
-	var tokens []wordToken
-	for _, seg := range segs {
-		c := colorSlate800
-		if seg.color != nil {
-			c = *seg.color
-		}
-		// Split into alternating non-space words and single-space separators
-		i := 0
-		for i < len(seg.text) {
-			if seg.text[i] == ' ' || seg.text[i] == '\t' {
-				j := i
-				for j < len(seg.text) && (seg.text[j] == ' ' || seg.text[j] == '\t') {
-					j++
-				}
-				tokens = append(tokens, wordToken{text: " ", bold: seg.bold, color: c, space: true})
-				i = j
-				continue
-			}
-			j := i
-			for j < len(seg.text) && seg.text[j] != ' ' && seg.text[j] != '\t' {
-				j++
-			}
-			tokens = append(tokens, wordToken{text: seg.text[i:j], bold: seg.bold, color: c})
-			i = j
-		}
-	}
-
-	measureToken := func(t wordToken) float64 {
-		style := ""
-		if t.bold {
-			style = "B"
-		}
-		pdf.SetFont(fontCfg.family, style, fontSize)
-		return pdf.GetStringWidth(t.text)
-	}
-
-	drawLine := func(line []wordToken) {
-		// Trim trailing space
-		for len(line) > 0 && line[len(line)-1].space {
-			line = line[:len(line)-1]
-		}
-		if pdf.GetY()+lineH > 276 {
-			pdf.AddPage()
+	drawFooterLine := func(segs []textSegment, align string) {
+		if len(segs) == 0 || pdf.GetY() > 292 {
+			return
 		}
 		prevMargin := pdf.GetCellMargin()
 		pdf.SetCellMargin(0)
-		pdf.SetX(x)
-		for _, t := range line {
+		defer pdf.SetCellMargin(prevMargin)
+
+		type span struct {
+			text  string
+			style string
+			width float64
+		}
+		var spans []span
+		totalW := 0.0
+		for _, seg := range segs {
 			style := ""
-			if t.bold {
-				style = "B"
+			if seg.bold {
+				style += "B"
 			}
-			pdf.SetFont(fontCfg.family, style, fontSize)
-			pdf.SetTextColor(t.color.r, t.color.g, t.color.b)
-			w := pdf.GetStringWidth(t.text)
-			pdf.CellFormat(w, lineH, t.text, "", 0, "L", false, 0, "")
+			if seg.italic {
+				style += "I"
+			}
+			if seg.underline {
+				style += "U"
+			}
+			pdf.SetFont(fontCfg.family, style, 7.8)
+			w := pdf.GetStringWidth(seg.text)
+			spans = append(spans, span{text: seg.text, style: style, width: w})
+			totalW += w
 		}
-		pdf.SetCellMargin(prevMargin)
-		pdf.Ln(lineH)
+
+		if len(spans) == 1 && (align == "C" || align == "R" || align == "L") {
+			pdf.SetX(pageMarginL)
+			pdf.SetFont(fontCfg.family, spans[0].style, 7.8)
+			pdf.SetTextColor(colorSlate500.r, colorSlate500.g, colorSlate500.b)
+			pdf.CellFormat(pageContentW, 4.2, spans[0].text, "", 1, align, false, 0, "")
+			return
+		}
+
+		startX := pageMarginL
+		if align == "C" && pageContentW > totalW {
+			startX = pageMarginL + (pageContentW-totalW)/2
+		} else if align == "R" && pageContentW > totalW {
+			startX = pageMarginL + (pageContentW - totalW)
+		}
+
+		pdf.SetX(startX)
+		pdf.SetTextColor(colorSlate500.r, colorSlate500.g, colorSlate500.b)
+		for _, sp := range spans {
+			pdf.SetFont(fontCfg.family, sp.style, 7.8)
+			pdf.CellFormat(sp.width, 4.2, sp.text, "", 0, "L", false, 0, "")
+		}
+		pdf.Ln(4.2)
 	}
 
-	var curLine []wordToken
-	curW := 0.0
+	var walkFooter func(*xhtml.Node)
+	walkFooter = func(n *xhtml.Node) {
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			if c.Type != xhtml.ElementNode {
+				continue
+			}
+			switch strings.ToLower(c.Data) {
+			case "p", "h1", "h2", "h3", "blockquote", "div":
+				align := extractNodeAlign(c, "C")
+				var segs []textSegment
+				collectInlineHTML(fontCfg, c, false, false, false, &colorSlate500, replacements, pdf.PageNo(), &segs)
+				var cur []textSegment
+				for _, s := range segs {
+					if s.text == "\n" {
+						drawFooterLine(cur, align)
+						cur = nil
+						continue
+					}
+					cur = append(cur, s)
+				}
+				if len(cur) > 0 {
+					drawFooterLine(cur, align)
+				}
+			default:
+				walkFooter(c)
+			}
+		}
+	}
+	walkFooter(root)
+}
 
-	for _, tok := range tokens {
-		if tok.space && len(curLine) == 0 {
-			continue
-		}
-		tw := measureToken(tok)
-		if !tok.space && len(curLine) > 0 && curW+tw > maxW {
-			drawLine(curLine)
-			curLine = nil
-			curW = 0
-		}
-		if tok.space && len(curLine) == 0 {
-			continue
-		}
-		curLine = append(curLine, tok)
-		curW += tw
+func renderHTMLAgreementBody(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, htmlBody string, replacements map[string]string, req CreateAgreementRequest) {
+	root := parseWrappedHTML(htmlBody)
+	if root == nil {
+		txt := replacePlaceholders(fontCfg, strings.TrimSpace(stripHTMLTags(htmlBody)), replacements, 0)
+		renderRichWrappedTextAligned(pdf, fontCfg, pageMarginL, pageContentW, 5.4, 10, "L", []textSegment{
+			{text: txt, color: &colorSlate800},
+		})
+		return
 	}
-	if len(curLine) > 0 {
-		drawLine(curLine)
+
+	plainFromSegs := func(segs []textSegment) string {
+		var sb strings.Builder
+		for _, s := range segs {
+			sb.WriteString(s.text)
+		}
+		return strings.TrimSpace(sb.String())
 	}
+
+	renderBlockSegs := func(x, w, lineH, size float64, align string, segs []textSegment) {
+		var current []textSegment
+		for _, seg := range segs {
+			if seg.text == "\n" {
+				if len(current) > 0 {
+					renderRichWrappedTextAligned(pdf, fontCfg, x, w, lineH, size, align, current)
+					current = nil
+				} else {
+					pdf.Ln(lineH * 0.6)
+				}
+				continue
+			}
+			current = append(current, seg)
+		}
+		if len(current) > 0 {
+			renderRichWrappedTextAligned(pdf, fontCfg, x, w, lineH, size, align, current)
+		}
+	}
+
+	var walkBlocks func(*xhtml.Node)
+	walkBlocks = func(n *xhtml.Node) {
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			if c.Type != xhtml.ElementNode {
+				continue
+			}
+			tag := strings.ToLower(c.Data)
+			align := extractNodeAlign(c, "L")
+			switch tag {
+			case "h1", "h2", "h3":
+				var segs []textSegment
+				collectInlineHTML(fontCfg, c, true, false, false, &colorSlate900, replacements, 0, &segs)
+				if plainFromSegs(segs) == "" {
+					continue
+				}
+				if pdf.GetY() > 252 {
+					pdf.AddPage()
+				}
+				pdf.Ln(2.5)
+				size := 10.8
+				if tag == "h1" {
+					size = 12.8
+				} else if tag == "h2" {
+					size = 11.8
+				}
+				renderBlockSegs(pageMarginL, pageContentW, 5.8, size, align, segs)
+				pdf.Ln(1.5)
+
+			case "hr":
+				if pdf.GetY() > 268 {
+					pdf.AddPage()
+				}
+				pdf.Ln(2)
+				y := pdf.GetY()
+				pdf.SetDrawColor(colorBorder.r, colorBorder.g, colorBorder.b)
+				pdf.SetLineWidth(0.35)
+				pdf.Line(pageMarginL, y, 210.0-pageMarginR, y)
+				pdf.Ln(3)
+
+			case "ul", "ol":
+				idx := 0
+				for li := c.FirstChild; li != nil; li = li.NextSibling {
+					if li.Type != xhtml.ElementNode || strings.ToLower(li.Data) != "li" {
+						continue
+					}
+					idx++
+					var segs []textSegment
+					collectInlineHTML(fontCfg, li, false, false, false, &colorSlate800, replacements, 0, &segs)
+					if plainFromSegs(segs) == "" {
+						continue
+					}
+					if pdf.GetY() > 270 {
+						pdf.AddPage()
+					}
+					prefix := cleanText(fontCfg, "•")
+					if tag == "ol" {
+						prefix = fmt.Sprintf("%d.", idx)
+					}
+					y := pdf.GetY()
+					pdf.SetFont(fontCfg.family, "B", 10)
+					pdf.SetTextColor(colorSlate900.r, colorSlate900.g, colorSlate900.b)
+					pdf.SetXY(pageMarginL+5, y)
+					pdf.CellFormat(5.5, 5.4, prefix, "", 0, "L", false, 0, "")
+					renderBlockSegs(pageMarginL+10.5, pageContentW-10.5, 5.4, 10, "L", segs)
+					pdf.Ln(1.2)
+				}
+				pdf.Ln(1)
+
+			case "blockquote":
+				var segs []textSegment
+				collectInlineHTML(fontCfg, c, false, true, false, &colorSlate600, replacements, 0, &segs)
+				if plainFromSegs(segs) == "" {
+					continue
+				}
+				startY := pdf.GetY()
+				renderBlockSegs(pageMarginL+4, pageContentW-4, 5.4, 10, align, segs)
+				endY := pdf.GetY()
+				if endY > startY {
+					pdf.SetDrawColor(colorBorder.r, colorBorder.g, colorBorder.b)
+					pdf.SetLineWidth(0.8)
+					pdf.Line(pageMarginL+1, startY, pageMarginL+1, endY-1)
+				}
+				pdf.Ln(1.8)
+
+			case "p":
+				var rawText strings.Builder
+				var extractRaw func(*xhtml.Node)
+				extractRaw = func(node *xhtml.Node) {
+					if node.Type == xhtml.TextNode {
+						rawText.WriteString(node.Data)
+					}
+					for ch := node.FirstChild; ch != nil; ch = ch.NextSibling {
+						extractRaw(ch)
+					}
+				}
+				extractRaw(c)
+				switch strings.TrimSpace(rawText.String()) {
+				case "{{pageBreak}}":
+					pdf.AddPage()
+					continue
+				case "{{signatureBlock}}":
+					renderSignatureBlock(pdf, fontCfg, req.Personal.FullName)
+					continue
+				case "{{clientInfoTable}}":
+					renderClientInfoTable(pdf, fontCfg, req)
+					continue
+				case "{{lendersTable}}":
+					renderLendersTable(pdf, fontCfg, req)
+					continue
+				case "{{feeScheduleTable}}":
+					renderFeeScheduleTable(pdf, fontCfg, req)
+					continue
+				}
+
+				var segs []textSegment
+				collectInlineHTML(fontCfg, c, false, false, false, &colorSlate800, replacements, 0, &segs)
+				if plainFromSegs(segs) == "" {
+					pdf.Ln(2.5)
+					continue
+				}
+				renderBlockSegs(pageMarginL, pageContentW, 5.4, 10, align, segs)
+				pdf.Ln(1.8)
+
+			default:
+				walkBlocks(c)
+			}
+		}
+	}
+
+	walkBlocks(root)
 }
 
 func renderSignatureBlock(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, clientName string) {
 	if pdf.GetY() > 240 {
 		pdf.AddPage()
 	}
-	pdf.Ln(8)
+	pdf.Ln(6)
 	y := pdf.GetY()
-
 	col2X := pageMarginL + 94
 
 	pdf.SetFont(fontCfg.family, "B", 10.2)
@@ -783,13 +764,13 @@ func renderSignatureBlock(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, clientName stri
 	pdf.CellFormat(84, 5.5, "Signature: ______________________", "", 0, "L", false, 0, "")
 	pdf.SetXY(col2X, y)
 	pdf.CellFormat(80, 5.5, "Signature: ______________________", "", 1, "L", false, 0, "")
+	pdf.Ln(3)
 }
 
-func renderAnnexureA(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, req CreateAgreementRequest) {
-	renderCenteredUnderlinedTitle(pdf, fontCfg, "Annexure A - Client & Lender Information", 12.5)
-	pdf.Ln(6)
-
-	// Table 1: Client Information
+func renderClientInfoTable(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, req CreateAgreementRequest) {
+	if pdf.GetY() > 215 {
+		pdf.AddPage()
+	}
 	col1W := 56.0
 	col2W := pageContentW - col1W
 
@@ -829,21 +810,29 @@ func renderAnnexureA(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, req CreateAgreementR
 		pdf.SetFont(fontCfg.family, style, 9.5)
 		pdf.CellFormat(col2W, 8.2, "   "+r.val, "1", 1, "L", false, 0, "")
 	}
+	pdf.Ln(4)
+}
 
-	pdf.Ln(6)
-
-	// Table 2: Lenders Information
+func renderLendersTable(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, req CreateAgreementRequest) {
+	if pdf.GetY() > 235 {
+		pdf.AddPage()
+	}
 	lCol1 := 64.0
 	lCol2 := 60.0
 	lCol3 := pageContentW - lCol1 - lCol2
 
-	pdf.SetFillColor(colorGreenHdr.r, colorGreenHdr.g, colorGreenHdr.b)
-	pdf.SetTextColor(255, 255, 255)
-	pdf.SetFont(fontCfg.family, "B", 9.5)
-	pdf.SetX(pageMarginL)
-	pdf.CellFormat(lCol1, 8.6, "   Lender Name*", "1", 0, "L", true, 0, "")
-	pdf.CellFormat(lCol2, 8.6, "   Loan Type (PL/CC)", "1", 0, "L", true, 0, "")
-	pdf.CellFormat(lCol3, 8.6, "Loan Amt (Balance)   ", "1", 1, "R", true, 0, "")
+	drawHeader := func() {
+		pdf.SetFillColor(colorGreenHdr.r, colorGreenHdr.g, colorGreenHdr.b)
+		pdf.SetTextColor(255, 255, 255)
+		pdf.SetDrawColor(colorBorder.r, colorBorder.g, colorBorder.b)
+		pdf.SetLineWidth(0.25)
+		pdf.SetFont(fontCfg.family, "B", 9.5)
+		pdf.SetX(pageMarginL)
+		pdf.CellFormat(lCol1, 8.6, "   Lender Name*", "1", 0, "L", true, 0, "")
+		pdf.CellFormat(lCol2, 8.6, "   Loan Type (PL/CC)", "1", 0, "L", true, 0, "")
+		pdf.CellFormat(lCol3, 8.6, "Loan Amt (Balance)   ", "1", 1, "R", true, 0, "")
+	}
+	drawHeader()
 
 	var totalOutstanding float64
 	if len(req.Lenders) == 0 {
@@ -853,7 +842,12 @@ func renderAnnexureA(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, req CreateAgreementR
 		pdf.CellFormat(pageContentW, 8.6, "No lenders selected", "1", 1, "C", false, 0, "")
 	} else {
 		for _, l := range req.Lenders {
+			if pdf.GetY()+8.4 > 276 {
+				pdf.AddPage()
+				drawHeader()
+			}
 			pdf.SetX(pageMarginL)
+			pdf.SetDrawColor(colorBorder.r, colorBorder.g, colorBorder.b)
 			pdf.SetTextColor(colorSlate800.r, colorSlate800.g, colorSlate800.b)
 			pdf.SetFont(fontCfg.family, "", 9.5)
 			pdf.CellFormat(lCol1, 8.2, "   "+valueOrDash(cleanText(fontCfg, l.LenderName)), "1", 0, "L", false, 0, "")
@@ -872,68 +866,10 @@ func renderAnnexureA(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, req CreateAgreementR
 	pdf.CellFormat(lCol1+lCol2, 8.6, "Total", "1", 0, "C", true, 0, "")
 	pdf.SetTextColor(colorGreen700.r, colorGreen700.g, colorGreen700.b)
 	pdf.CellFormat(lCol3, 8.6, formatIndianNumber(totalOutstanding)+"   ", "1", 1, "R", true, 0, "")
-
 	pdf.Ln(3)
-	pdf.SetX(pageMarginL)
-	pdf.SetFont(fontCfg.family, "I", 8.5)
-	pdf.SetTextColor(colorSlate500.r, colorSlate500.g, colorSlate500.b)
-	pdf.MultiCell(pageContentW, 4.5, "* Each lender has a unique process and resolution is at the discretion of the lenders", "", "L", false)
 }
 
-func renderAnnexureB(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, req CreateAgreementRequest, preparedBy string) {
-	renderCenteredUnderlinedTitle(pdf, fontCfg, "Annexure B", 12.5)
-	pdf.Ln(6)
-
-	var totalLoan float64
-	for _, l := range req.Lenders {
-		totalLoan += l.OutstandingAmount
-	}
-
-	durationDisplay := formatDurationDisplay(req.Agreement.Duration)
-
-	drawPair := func(l1, v1, l2, v2 string) {
-		prevMargin := pdf.GetCellMargin()
-		pdf.SetCellMargin(0)
-		y := pdf.GetY()
-		pdf.SetXY(pageMarginL, y)
-		pdf.SetTextColor(colorSlate900.r, colorSlate900.g, colorSlate900.b)
-		pdf.SetFont(fontCfg.family, "B", 9.5)
-		lw1 := pdf.GetStringWidth(l1) + 2.5
-		pdf.CellFormat(lw1, 6.2, l1, "", 0, "L", false, 0, "")
-		pdf.SetFont(fontCfg.family, "B", 9.5)
-		pdf.CellFormat(90-lw1, 6.2, v1, "", 0, "L", false, 0, "")
-
-		if l2 != "" {
-			pdf.SetXY(pageMarginL+92, y)
-			pdf.SetFont(fontCfg.family, "B", 9.5)
-			lw2 := pdf.GetStringWidth(l2) + 2.5
-			pdf.CellFormat(lw2, 6.2, l2, "", 0, "L", false, 0, "")
-			pdf.CellFormat(82-lw2, 6.2, v2, "", 0, "L", false, 0, "")
-		}
-		pdf.SetCellMargin(prevMargin)
-		pdf.Ln(7.5)
-	}
-
-	drawPair("Client Name:", valueOrDash(cleanText(fontCfg, req.Personal.FullName)), "Prepared By:", valueOrDash(cleanText(fontCfg, preparedBy)))
-	drawPair("Total Loan:", "Rs. "+formatIndianNumber(totalLoan), "Monthly Income:", "Rs. "+formatIndianNumber(req.Agreement.MonthlyIncome))
-	drawPair("Agreement Duration:", durationDisplay, "", "")
-	drawPair("Consultancy Fees:", "Rs. "+formatIndianNumber(req.Agreement.ConsultingFees), "Resolution Duration:", durationDisplay)
-
-	pdf.Ln(2)
-	pdf.SetX(pageMarginL)
-	pdf.SetFont(fontCfg.family, "", 8.5)
-	pdf.SetTextColor(colorSlate500.r, colorSlate500.g, colorSlate500.b)
-	pdf.MultiCell(pageContentW, 4.5, "*This is based on past precedents. Each case is unique and at the discretion of the lenders.", "", "L", false)
-	pdf.SetX(pageMarginL)
-	pdf.MultiCell(pageContentW, 4.5, "**To get faster resolutions, save as much as possible on monthly basis.", "", "L", false)
-
-	pdf.Ln(5.5)
-	pdf.SetX(pageMarginL)
-	pdf.SetFont(fontCfg.family, "B", 10.5)
-	pdf.SetTextColor(colorSlate900.r, colorSlate900.g, colorSlate900.b)
-	pdf.CellFormat(pageContentW, 6, "Consultancy Fee Schedule", "", 1, "L", false, 0, "")
-	pdf.Ln(2.5)
-
+func renderFeeScheduleTable(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, req CreateAgreementRequest) {
 	months := 1
 	if m := durationDigitsRe.FindStringSubmatch(req.Agreement.Duration); len(m) > 1 {
 		if parsed, err := strconv.Atoi(m[1]); err == nil && parsed > 0 && parsed <= 60 {
@@ -959,6 +895,9 @@ func renderAnnexureB(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, req CreateAgreementR
 		pdf.CellFormat(c3, 8.8, "Due Date", "1", 1, "C", true, 0, "")
 	}
 
+	if pdf.GetY()+18 > 276 {
+		pdf.AddPage()
+	}
 	drawScheduleHeader()
 
 	feeStr := "Rs. " + formatIndianNumber(req.Agreement.ConsultingFees)
@@ -980,126 +919,152 @@ func renderAnnexureB(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, req CreateAgreementR
 		pdf.SetFont(fontCfg.family, "", 9.5)
 		pdf.CellFormat(c3, 8.2, due, "1", 1, "C", false, 0, "")
 	}
+	pdf.Ln(3)
 }
 
-func renderAnnexureCD(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, req CreateAgreementRequest) {
-	clientName := valueOrDash(cleanText(fontCfg, req.Personal.FullName))
-	execDate := formatTimePtrPDF(req.Agreement.ExecutedDate)
-	incomeStr := "INR " + formatIndianNumber(req.Agreement.MonthlyIncome) + " /-"
-	address := valueOrDash(cleanText(fontCfg, req.Personal.FullAddress))
-
-	renderCenteredUnderlinedTitle(pdf, fontCfg, "Annexure C - Confirmation of in-hand monthly income", 12)
-	pdf.Ln(5.5)
-
-	p1Segs := []textSegment{
-		{text: "I, ", color: &colorSlate800},
-		{text: clientName, bold: true, color: &colorSlate900},
-		{text: " expressly confirm that my monthly in hand income as of ", color: &colorSlate800},
-		{text: execDate, bold: true, color: &colorSlate900},
-		{text: " is ", color: &colorSlate800},
-		{text: incomeStr, bold: true, color: &colorSlate900},
-		{text: " per month after deductions.", color: &colorSlate800},
-	}
-	renderRichWrappedText(pdf, fontCfg, pageMarginL, pageContentW, 5.5, 10, p1Segs)
-	pdf.Ln(3)
-
-	renderRichWrappedText(pdf, fontCfg, pageMarginL, pageContentW, 5.5, 10, []textSegment{
-		{text: "I understand that resolution with lenders is a complex process and income is a significant factor. I understand that if I provide factually incorrect income, the same can make my case weaker.", color: &colorSlate800},
-	})
-	pdf.Ln(3)
-
-	renderRichWrappedText(pdf, fontCfg, pageMarginL, pageContentW, 5.5, 10, []textSegment{
-		{text: "In case I have provided incorrect income information the First Party is entitled to:", color: &colorSlate800},
-	})
-	pdf.Ln(1.5)
-
-	bullet := cleanText(fontCfg, "•")
-	bullets := []string{
-		"Seek past income proof in coming months based on attested bank statements.",
-		"Modify the financial proposal suitably in case income is revised.",
-	}
-	for _, b := range bullets {
-		y := pdf.GetY()
-		pdf.SetXY(pageMarginL+5, y)
-		pdf.SetFont(fontCfg.family, "B", 10)
-		pdf.SetTextColor(colorSlate900.r, colorSlate900.g, colorSlate900.b)
-		pdf.CellFormat(4.5, 5.5, bullet, "", 0, "L", false, 0, "")
-		renderRichWrappedText(pdf, fontCfg, pageMarginL+9.5, pageContentW-9.5, 5.5, 10, []textSegment{
-			{text: b, color: &colorSlate800},
-		})
-		pdf.Ln(1)
+func renderRichWrappedTextAligned(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, x, maxW, lineH, fontSize float64, align string, segs []textSegment) {
+	type wordToken struct {
+		text      string
+		bold      bool
+		italic    bool
+		underline bool
+		color     rgbColor
+		space     bool
 	}
 
-	pdf.Ln(5.5)
-	y := pdf.GetY()
-	pdf.SetDrawColor(colorBorder.r, colorBorder.g, colorBorder.b)
-	pdf.SetLineWidth(0.3)
-	pdf.Line(pageMarginL, y, 210.0-pageMarginR, y)
-	pdf.Ln(6)
-
-	renderCenteredUnderlinedTitle(pdf, fontCfg, "Annexure D - Permission Letter to Communicate with Lenders and Collection Agencies", 12)
-	pdf.Ln(5.5)
-
-	p2Segs := []textSegment{
-		{text: "I, ", color: &colorSlate800},
-		{text: clientName, bold: true, color: &colorSlate900},
-		{text: " expressly authorize ", color: &colorSlate800},
-		{text: "SettleXpert LLP (Company)", bold: true, color: &colorSlate900},
-		{text: ", its agents and representatives to communicate and negotiate with lenders and their collection agencies and to settle the loan amounts on my behalf in discussions with my lenders.", color: &colorSlate800},
+	var tokens []wordToken
+	for _, seg := range segs {
+		c := colorSlate800
+		if seg.color != nil {
+			c = *seg.color
+		}
+		i := 0
+		for i < len(seg.text) {
+			if seg.text[i] == ' ' || seg.text[i] == '\t' {
+				j := i
+				for j < len(seg.text) && (seg.text[j] == ' ' || seg.text[j] == '\t') {
+					j++
+				}
+				tokens = append(tokens, wordToken{
+					text:      " ",
+					bold:      seg.bold,
+					italic:    seg.italic,
+					underline: seg.underline,
+					color:     c,
+					space:     true,
+				})
+				i = j
+				continue
+			}
+			j := i
+			for j < len(seg.text) && seg.text[j] != ' ' && seg.text[j] != '\t' {
+				j++
+			}
+			tokens = append(tokens, wordToken{
+				text:      seg.text[i:j],
+				bold:      seg.bold,
+				italic:    seg.italic,
+				underline: seg.underline,
+				color:     c,
+			})
+			i = j
+		}
 	}
-	renderRichWrappedText(pdf, fontCfg, pageMarginL, pageContentW, 5.5, 10, p2Segs)
-	pdf.Ln(3.5)
 
-	pdf.SetX(pageMarginL)
-	pdf.SetFont(fontCfg.family, "B", 10)
-	pdf.SetTextColor(colorSlate900.r, colorSlate900.g, colorSlate900.b)
-	pdf.CellFormat(pageContentW, 5.5, "The Company is entitled to", "", 1, "L", false, 0, "")
-	pdf.Ln(1.5)
+	fontStyle := func(t wordToken) string {
+		style := ""
+		if t.bold {
+			style += "B"
+		}
+		if t.italic {
+			style += "I"
+		}
+		if t.underline {
+			style += "U"
+		}
+		return style
+	}
 
-	renderRichWrappedText(pdf, fontCfg, pageMarginL, pageContentW, 5.5, 10, []textSegment{
-		{text: "Obtain on my behalf, records, debt validations and support for the debts allegedly owed by me. Communicate and negotiate with banks, lenders, financial institutions, licensed collection agencies and all other related entities and individuals relating to my debts.", color: &colorSlate800},
-	})
+	measureToken := func(t wordToken) float64 {
+		pdf.SetFont(fontCfg.family, fontStyle(t), fontSize)
+		return pdf.GetStringWidth(t.text)
+	}
 
-	pdf.Ln(6)
-	pdf.SetX(pageMarginL)
-	pdf.SetFont(fontCfg.family, "B", 10)
-	pdf.SetTextColor(colorSlate900.r, colorSlate900.g, colorSlate900.b)
-	pdf.CellFormat(pageContentW, 5.5, "Signature: _________________________", "", 1, "L", false, 0, "")
-	pdf.Ln(2)
+	drawLine := func(line []wordToken, isLast bool) {
+		for len(line) > 0 && line[len(line)-1].space {
+			line = line[:len(line)-1]
+		}
+		if pdf.GetY()+lineH > 276 {
+			pdf.AddPage()
+		}
+		prevMargin := pdf.GetCellMargin()
+		pdf.SetCellMargin(0)
 
-	prevMargin := pdf.GetCellMargin()
-	pdf.SetCellMargin(0)
-	pdf.SetX(pageMarginL)
-	pdf.SetFont(fontCfg.family, "B", 10)
-	pdf.CellFormat(pdf.GetStringWidth("Date: "), 5.5, "Date: ", "", 0, "L", false, 0, "")
-	pdf.SetFont(fontCfg.family, "", 10)
-	pdf.CellFormat(60, 5.5, execDate, "", 1, "L", false, 0, "")
-	pdf.Ln(2.5)
+		totalW := 0.0
+		spaceCount := 0
+		widths := make([]float64, len(line))
+		for idx, t := range line {
+			w := measureToken(t)
+			widths[idx] = w
+			totalW += w
+			if t.space {
+				spaceCount++
+			}
+		}
 
-	placeY := pdf.GetY()
-	pdf.SetXY(pageMarginL, placeY)
-	pdf.SetFont(fontCfg.family, "B", 9.5)
-	pdf.CellFormat(pdf.GetStringWidth("Place: "), 5.2, "Place: ", "", 0, "L", false, 0, "")
-	pdf.SetFont(fontCfg.family, "", 9.5)
-	pdf.SetTextColor(colorSlate800.r, colorSlate800.g, colorSlate800.b)
-	pdf.MultiCell(110, 5.2, address, "", "L", false)
+		startX := x
+		extraPerSpace := 0.0
+		switch align {
+		case "C":
+			if maxW > totalW {
+				startX = x + (maxW-totalW)/2
+			}
+		case "R":
+			if maxW > totalW {
+				startX = x + (maxW - totalW)
+			}
+		case "J":
+			if !isLast && spaceCount > 0 && maxW > totalW {
+				extraPerSpace = (maxW - totalW) / float64(spaceCount)
+			}
+		}
 
-	pdf.SetXY(150, placeY)
-	pdf.SetFont(fontCfg.family, "B", 9.5)
-	pdf.SetTextColor(colorSlate900.r, colorSlate900.g, colorSlate900.b)
-	pdf.CellFormat(42, 5.2, "Executed Date:", "", 1, "L", false, 0, "")
-	pdf.SetX(150)
-	pdf.SetFont(fontCfg.family, "", 9.5)
-	pdf.SetTextColor(colorSlate800.r, colorSlate800.g, colorSlate800.b)
-	pdf.CellFormat(42, 5.2, execDate, "", 1, "L", false, 0, "")
-	pdf.SetCellMargin(prevMargin)
-}
+		pdf.SetX(startX)
+		for idx, t := range line {
+			pdf.SetFont(fontCfg.family, fontStyle(t), fontSize)
+			pdf.SetTextColor(t.color.r, t.color.g, t.color.b)
+			w := widths[idx]
+			if t.space && extraPerSpace > 0 {
+				w += extraPerSpace
+			}
+			pdf.CellFormat(w, lineH, t.text, "", 0, "L", false, 0, "")
+		}
+		pdf.SetCellMargin(prevMargin)
+		pdf.Ln(lineH)
+	}
 
-func renderCenteredUnderlinedTitle(pdf *fpdf.Fpdf, fontCfg pdfFontConfig, title string, size float64) {
-	pdf.SetX(pageMarginL)
-	pdf.SetFont(fontCfg.family, "BU", size)
-	pdf.SetTextColor(colorSlate900.r, colorSlate900.g, colorSlate900.b)
-	pdf.MultiCell(pageContentW, 6.4, cleanText(fontCfg, title), "", "C", false)
+	var curLine []wordToken
+	curW := 0.0
+
+	for _, tok := range tokens {
+		if tok.space && len(curLine) == 0 {
+			continue
+		}
+		tw := measureToken(tok)
+		if !tok.space && len(curLine) > 0 && curW+tw > maxW {
+			drawLine(curLine, false)
+			curLine = nil
+			curW = 0
+		}
+		if tok.space && len(curLine) == 0 {
+			continue
+		}
+		curLine = append(curLine, tok)
+		curW += tw
+	}
+	if len(curLine) > 0 {
+		drawLine(curLine, true)
+	}
 }
 
 func buildPlaceholderReplacements(req CreateAgreementRequest, preparedBy string) map[string]string {
@@ -1142,6 +1107,7 @@ func buildPlaceholderReplacements(req CreateAgreementRequest, preparedBy string)
 		"{{lendersList}}":        lendersList,
 		"{{totalOutstanding}}":   "Rs. " + formatIndianNumber(totalOutstanding),
 		"{{duration}}":           formatDurationDisplay(req.Agreement.Duration),
+		"{{resolutionDuration}}": formatDurationDisplay(req.Agreement.ResolutionDuration),
 		"{{consultingFees}}":     "Rs. " + formatIndianNumber(req.Agreement.ConsultingFees),
 		"{{totalConsultingFee}}": "Rs. " + formatIndianNumber(totalFee),
 		"{{monthlyIncome}}":      "Rs. " + formatIndianNumber(req.Agreement.MonthlyIncome),
