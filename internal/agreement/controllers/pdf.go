@@ -89,15 +89,7 @@ func resolveAssetPath(rel string) string {
 }
 
 func resolveLogoPath() string {
-	if p := resolveAssetPath("settlexpert-logo.png"); p != "" {
-		return p
-	}
-	for _, p := range []string{"../frontend/public/logo.png", "frontend/public/logo.png"} {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return ""
+	return resolveAssetPath("settlexpert-logo.png")
 }
 
 func configurePDFFonts(pdf *fpdf.Fpdf) pdfFontConfig {
